@@ -102,10 +102,13 @@ struct CameraScreen: View {
 
                     if isToolPanelExpanded {
                         Group {
-                            if activeTool == .filters {
+                            switch activeTool {
+                            case .filters:
                                 filterPicker
-                            } else {
+                            case .superResolution:
                                 superResolutionPicker
+                            case .autofocus:
+                                autofocusPicker
                             }
                         }
                         .frame(width: width - 20)
@@ -195,11 +198,13 @@ struct CameraScreen: View {
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
+            .ignoresSafeArea()
 
             if !camera.isAuthorized {
                 permissionCard
             }
         }
+        .ignoresSafeArea(.container, edges: .all)
         .statusBarHidden()
         .sheet(isPresented: $showReview) {
             if let image = camera.capturedImage {
@@ -297,9 +302,9 @@ struct CameraScreen: View {
 
     private var toolCapsule: some View {
         HStack(spacing: 7) {
-            Image(systemName: activeTool == .filters ? "camera.filters" : "sparkles")
+            Image(systemName: toolSymbol)
                 .font(.system(size: 13, weight: .semibold))
-            Text(activeTool == .filters ? "滤镜" : "AI 超分")
+            Text(toolTitle)
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .lineLimit(1)
             Image(systemName: isToolPanelExpanded ? "chevron.down" : "chevron.up")
@@ -323,9 +328,14 @@ struct CameraScreen: View {
                     let dy = value.translation.height
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         if abs(dy) > 24 && abs(dy) > abs(dx) {
-                            activeTool = dy < 0 ? .superResolution : .filters
-                            isToolPanelExpanded = dy < 0
-                            if dy > 0 { focusZonesVisible = false }
+                            if dy < 0 {
+                                activeTool = nextTool(after: activeTool)
+                                isToolPanelExpanded = true
+                            } else {
+                                activeTool = previousTool(before: activeTool)
+                                isToolPanelExpanded = true
+                                focusZonesVisible = false
+                            }
                         } else if abs(dx) < 14 && abs(dy) < 14 {
                             isToolPanelExpanded.toggle()
                         }
@@ -339,7 +349,72 @@ struct CameraScreen: View {
                 isToolPanelExpanded.toggle()
             }
         }
-        .accessibilityHint("向上滑切换到 AI 超分，向下滑切换到滤镜，轻点展开或收起")
+        .accessibilityHint("向上滑依次切换滤镜、AI 超分、自动对焦；向下滑反向切换；轻点展开或收起")
+    }
+
+    private var toolTitle: String {
+        switch activeTool {
+        case .filters: return "滤镜"
+        case .superResolution: return "AI 超分"
+        case .autofocus: return "自动对焦"
+        }
+    }
+
+    private var toolSymbol: String {
+        switch activeTool {
+        case .filters: return "camera.filters"
+        case .superResolution: return "sparkles"
+        case .autofocus: return "viewfinder"
+        }
+    }
+
+    private func nextTool(after tool: CameraToolMode) -> CameraToolMode {
+        switch tool {
+        case .filters: return .superResolution
+        case .superResolution: return .autofocus
+        case .autofocus: return .filters
+        }
+    }
+
+    private func previousTool(before tool: CameraToolMode) -> CameraToolMode {
+        switch tool {
+        case .filters: return .autofocus
+        case .superResolution: return .filters
+        case .autofocus: return .superResolution
+        }
+    }
+
+    private var autofocusPicker: some View {
+        VStack(spacing: 10) {
+            Button {
+                focusZonesVisible = true
+                camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "viewfinder")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text(camera.focusStatus == .focusing ? "正在对焦" :
+                         camera.focusStatus == .focused ? "对焦完成" : "自动对焦")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                    Spacer()
+                    if camera.focusStatus == .focusing {
+                        ProgressView().tint(Color(hex: 0x32D46A))
+                    } else {
+                        Circle()
+                            .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xA5B0BD))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color.white, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(8)
+        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var filterPicker: some View {
@@ -401,48 +476,7 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
             }
 
-            Button {
-                focusZonesVisible = true
-                camera.focus(at: CGPoint(x: 0.5, y: 0.5))
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: camera.focusStatus == .focused ? "viewfinder.circle.fill" : "viewfinder")
-                        .font(.system(size: 18, weight: .semibold))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(focusStatusTitle)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                        Text("半按快门式单次自动对焦 · 对准画面中心")
-                            .font(.system(size: 9, weight: .medium))
-                            .opacity(0.72)
-                    }
-                    Spacer(minLength: 4)
-                    if camera.focusStatus == .focusing {
-                        ProgressView()
-                            .tint(Color(hex: 0x32D46A))
-                    } else {
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 10, weight: .bold))
-                            .opacity(0.65)
-                    }
-                }
-                .foregroundStyle(camera.focusStatus == .focused ? Color.white : Color(hex: 0x3D4352))
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(
-                    camera.focusStatus == .focused
-                        ? Color(hex: 0x32D46A)
-                        : Color(hex: 0xEAF7EF),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(camera.focusStatus == .focusing)
-
-            Toggle(isOn: $superResolutionEnabled) {
+old AF button remove from superres panel            Toggle(isOn: $superResolutionEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("拍摄后自动增强")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -1008,4 +1042,5 @@ private struct MacaronPalette: Identifiable {
 private enum CameraToolMode {
     case filters
     case superResolution
+    case autofocus
 }
