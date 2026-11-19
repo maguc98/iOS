@@ -71,10 +71,8 @@ struct CameraScreen: View {
             if let image = camera.capturedImage {
                 PhotoReviewView(
                     image: image,
-                    onSave: {
-                        camera.saveCapturedPhoto { success in
-                            camera.errorMessage = success ? "已保存到照片图库" : "保存失败，请检查照片权限。"
-                        }
+                    onSave: { completion in
+                        camera.saveCapturedPhoto(completion: completion)
                     },
                     onClose: { showReview = false }
                 )
@@ -86,8 +84,8 @@ struct CameraScreen: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
-        .onChange(of: camera.capturedImage) { _, image in
-            if image != nil { showReview = true }
+        .onChange(of: camera.captureID) { _, _ in
+            showReview = true
         }
         .onAppear { camera.prepare() }
         .alert("POP CAM", isPresented: Binding(
@@ -139,6 +137,7 @@ struct CameraScreen: View {
                         tint: Color(hex: 0xFFE45E)
                     )
                 }
+                .disabled(camera.cameraPosition == .front)
 
                 Button {
                     showSettings = true
@@ -245,16 +244,17 @@ struct CameraScreen: View {
     }
 
     private var modeFooter: some View {
-        HStack(spacing: 22) {
-            Text("VIDEO")
-                .foregroundStyle(.white.opacity(0.52))
-            Text("PHOTO")
+        HStack(spacing: 8) {
+            Circle().fill(Color(hex: 0x83DFA6)).frame(width: 6, height: 6)
+            Text("PHOTO MODE")
+                .foregroundStyle(.white)
+            Text("·")
+                .foregroundStyle(.white.opacity(0.45))
+            Text("FILTERS ON")
                 .foregroundStyle(Color(hex: 0xFFE45E))
-            Text("PORTRAIT")
-                .foregroundStyle(.white.opacity(0.52))
         }
         .font(.system(size: 10, weight: .heavy, design: .rounded))
-        .tracking(1.8)
+        .tracking(1.5)
     }
 
     private var permissionCard: some View {
