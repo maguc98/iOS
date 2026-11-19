@@ -16,6 +16,7 @@ final class CameraService: ObservableObject {
     @Published var zoomFactor: CGFloat = 1
     @Published var exposureBias: Float = 0
     @Published var capturedImage: UIImage?
+    @Published var captureID = 0
     @Published var errorMessage: String?
 
     let session = AVCaptureSession()
@@ -57,12 +58,13 @@ final class CameraService: ObservableObject {
     }
 
     private func configureSession() {
+        let requestedPosition = cameraPosition
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.session.beginConfiguration()
             self.session.sessionPreset = .photo
 
-            guard let device = self.cameraDevice(position: self.cameraPosition),
+            guard let device = self.cameraDevice(position: requestedPosition),
                   let input = try? AVCaptureDeviceInput(device: device),
                   self.session.canAddInput(input) else {
                 self.session.commitConfiguration()
@@ -105,10 +107,11 @@ final class CameraService: ObservableObject {
     }
 
     func switchCamera() {
+        let nextPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
         sessionQueue.async { [weak self] in
             guard let self,
                   let oldInput = self.activeInput,
-                  let device = self.cameraDevice(position: self.cameraPosition == .back ? .front : .back),
+                  let device = self.cameraDevice(position: nextPosition),
                   let newInput = try? AVCaptureDeviceInput(device: device) else { return }
 
             self.session.beginConfiguration()
@@ -146,6 +149,7 @@ final class CameraService: ObservableObject {
                     return
                 }
                 self.capturedImage = self.selectedFilter.apply(to: image)
+                self.captureID += 1
             }
         }
         photoProcessor = processor
@@ -156,8 +160,7 @@ final class CameraService: ObservableObject {
         let clamped = min(max(value, 1), 5)
         zoomFactor = clamped
         sessionQueue.async { [weak self] in
-            guard let self, let device = self.activeInput?.device,
-                  device.isVideoZoomFactorSupported else { return }
+            guard let self, let device = self.activeInput?.device else { return }
             do {
                 try device.lockForConfiguration()
                 device.videoZoomFactor = min(clamped, device.activeFormat.videoMaxZoomFactor)
