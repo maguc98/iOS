@@ -33,7 +33,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.465
+                let centerY = previewGeometry.size.height * 0.40
 
                 Group {
                     if let frame = camera.previewImage {
@@ -66,7 +66,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.465
+                                y: maskGeometry.size.height * 0.40
                             )
                     }
                 }
@@ -87,7 +87,17 @@ struct CameraScreen: View {
                     Spacer(minLength: 18)
                     FilterTray(selection: $camera.selectedFilter)
                         .frame(maxWidth: .infinity)
+                        .padding(.top, 34)
                         .padding(.bottom, 18)
+                        .background {
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color.white.opacity(0.58))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                                }
+                                .padding(.horizontal, 2)
+                        }
                     zoomControl
                         .padding(.bottom, 22)
                     shutterControls
@@ -144,7 +154,7 @@ struct CameraScreen: View {
                     Text("POP")
                         .foregroundStyle(Color(hex: 0xFFE45E))
                     Text("CAM")
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(hex: 0x3D4352))
                 }
                 .font(.system(size: 22, weight: .black, design: .rounded))
                 .tracking(-0.8)
@@ -154,7 +164,7 @@ struct CameraScreen: View {
                 Text("MAKE TODAY POP")
                     .font(.system(size: 8, weight: .bold, design: .rounded))
                     .tracking(2.1)
-                    .foregroundStyle(.white.opacity(0.76))
+                    .foregroundStyle(Color(hex: 0x596171).opacity(0.86))
             }
 
             Spacer()
@@ -237,9 +247,10 @@ struct CameraScreen: View {
                     } else {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(hex: 0x596171))
                     }
                 }
+                .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,9 +285,9 @@ struct CameraScreen: View {
             } label: {
                 Image(systemName: "camera.rotate.fill")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(hex: 0x596171))
                     .frame(width: 48, height: 48)
-                    .background(.white.opacity(0.18), in: Circle())
+                    .background(Color.white.opacity(0.58), in: Circle())
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -289,11 +300,11 @@ struct CameraScreen: View {
         HStack(spacing: 8) {
             Circle().fill(Color(hex: 0x83DFA6)).frame(width: 6, height: 6)
             Text("PHOTO MODE")
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(hex: 0x3D4352))
             Text("·")
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(Color(hex: 0x87909E))
             Text("FILTERS ON")
-                .foregroundStyle(Color(hex: 0xFFE45E))
+                .foregroundStyle(Color(hex: 0xD77A36))
         }
         .font(.system(size: 10, weight: .heavy, design: .rounded))
         .tracking(1.5)
