@@ -191,14 +191,33 @@ final class CameraService: ObservableObject {
     }
 
     func setZoom(_ value: CGFloat) {
-        let clamped = min(max(value, 1), 5)
-        zoomFactor = clamped
+        let wantsUltraWide = value < 1 && cameraPosition == .back
+        let requestedZoom = wantsUltraWide ? 0.5 : min(max(value, 1), 5)
+        zoomFactor = requestedZoom
         sessionQueue.async { [weak self] in
-            guard let self, let device = self.activeInput?.device else { return }
+            guard let self, let oldInput = self.activeInput?.device else { return }
+            let targetType: AVCaptureDevice.DeviceType = wantsUltraWide ? .builtInUltraWideCamera : .builtInWideAngleCamera
+            guard let targetDevice = AVCaptureDevice.default(targetType, for: .video, position: self.cameraPosition),
+                  let targetInput = try? AVCaptureDeviceInput(device: targetDevice) else { return }
             do {
-                try device.lockForConfiguration()
-                device.videoZoomFactor = min(clamped, device.activeFormat.videoMaxZoomFactor)
-                device.unlockForConfiguration()
+                if oldInput.uniqueID != targetDevice.uniqueID {
+                    self.session.beginConfiguration()
+                    self.session.removeInput(self.activeInput!)
+                    guard self.session.canAddInput(targetInput) else {
+                        self.session.addInput(self.activeInput!)
+                        self.session.commitConfiguration()
+                        return
+                    }
+                    self.session.addInput(targetInput)
+                    self.activeInput = targetInput
+                    self.session.commitConfiguration()
+                }
+                try targetDevice.lockForConfiguration()
+                targetDevice.videoZoomFactor = wantsUltraWide
+                    ? 1
+                    : min(requestedZoom, targetDevice.activeFormat.videoMaxZoomFactor)
+                targetDevice.unlockForConfiguration()
+                DispatchQueue.main.async { self.zoomFactor = requestedZoom }
             } catch {
                 DispatchQueue.main.async { self.errorMessage = "暂时无法调整变焦。" }
             }
