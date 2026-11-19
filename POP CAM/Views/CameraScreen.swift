@@ -11,6 +11,8 @@ struct CameraScreen: View {
     @State private var showFilters = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
+    @State private var focusIndicatorPoint: CGPoint?
+    @State private var focusIndicatorID = 0
 
     var body: some View {
         ZStack {
@@ -36,17 +38,49 @@ struct CameraScreen: View {
                 let centerX = previewGeometry.size.width / 2
                 let centerY = previewGeometry.size.height * 0.465
 
-                Group {
-                    if let frame = camera.previewImage {
-                        Image(decorative: frame, scale: 1)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        CameraPreview(session: camera.session)
+                ZStack {
+                    Group {
+                        if let frame = camera.previewImage {
+                            Image(decorative: frame, scale: 1)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            CameraPreview(session: camera.session)
+                        }
+                    }
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .onTapGesture(coordinateSpace: .local) { location in
+                        let normalizedPoint = CGPoint(
+                            x: min(max(location.x / width, 0), 1),
+                            y: min(max(location.y / height, 0), 1)
+                        )
+                        camera.focus(at: normalizedPoint)
+                        focusIndicatorID += 1
+                        let currentID = focusIndicatorID
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                            focusIndicatorPoint = location
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                            guard focusIndicatorID == currentID else { return }
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                focusIndicatorPoint = nil
+                            }
+                        }
+                    }
+
+                    if let focusIndicatorPoint {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(Color(hex: 0xFFE45E), lineWidth: 2)
+                            .frame(width: 54, height: 54)
+                            .shadow(color: .black.opacity(0.25), radius: 3)
+                            .position(focusIndicatorPoint)
+                            .transition(.scale.combined(with: .opacity))
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(width: width, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .position(x: centerX, y: centerY)
             }
             .ignoresSafeArea()
