@@ -33,6 +33,12 @@ jobs:
           ditto "$MODEL_PACKAGE" "POP CAM/Models/RealESRGAN-x4v3.mlpackage"
           echo "Model package prepared: $(du -sh "POP CAM/Models/RealESRGAN-x4v3.mlpackage" | cut -f1)"
 
+      - name: Render POP CAM app icon
+        run: |
+          set -euo pipefail
+          swift scripts/render_app_icon.swift "POP CAM/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          test -s "POP CAM/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+
       - name: Show Xcode version
         run: xcodebuild -version
 
