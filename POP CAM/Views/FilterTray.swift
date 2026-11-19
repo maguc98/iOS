@@ -15,39 +15,55 @@ struct FilterTray: View {
     ]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 18) {
-                ForEach(CameraFilter.allCases) { filter in
-                    Button {
-                        withAnimation(.snappy(duration: 0.2)) {
-                            selection = filter
-                        }
-                    } label: {
-                        VStack(spacing: 7) {
-                            Circle()
-                                .fill(accents[filter] ?? .white)
-                                .frame(width: 34, height: 34)
-                                .overlay {
-                                    if selection == filter {
-                                        Circle().stroke(.white, lineWidth: 2.5)
-                                            .padding(-5)
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundStyle(Color.black.opacity(0.72))
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(CameraFilter.allCases) { filter in
+                        Button {
+                            withAnimation(.snappy(duration: 0.25)) {
+                                selection = filter
+                                proxy.scrollTo(filter.id, anchor: .center)
+                            }
+                        } label: {
+                            VStack(spacing: 7) {
+                                Circle()
+                                    .fill(accents[filter] ?? .white)
+                                    .frame(width: 34, height: 34)
+                                    .overlay {
+                                        if selection == filter {
+                                            Circle().stroke(.white, lineWidth: 2.5)
+                                                .padding(-5)
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundStyle(Color.black.opacity(0.72))
+                                        }
                                     }
-                                }
-                            Text(filter.rawValue)
-                                .font(.system(size: 11, weight: selection == filter ? .bold : .medium))
-                                .foregroundStyle(selection == filter ? .white : .white.opacity(0.66))
+                                Text(filter.rawValue)
+                                    .font(.system(size: 11, weight: selection == filter ? .bold : .medium))
+                                    .foregroundStyle(selection == filter ? .white : .white.opacity(0.66))
+                            }
+                            .frame(width: 48)
+                            .contentShape(Rectangle())
                         }
-                        .frame(minWidth: 42)
+                        .buttonStyle(.plain)
+                        .id(filter.id)
+                        .accessibilityLabel("\(filter.rawValue)，\(filter.subtitle)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(filter.rawValue)，\(filter.subtitle)")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+            .onAppear {
+                DispatchQueue.main.async {
+                    proxy.scrollTo(selection.id, anchor: .center)
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 7)
+            .onChange(of: selection) { _, newValue in
+                withAnimation(.snappy(duration: 0.25)) {
+                    proxy.scrollTo(newValue.id, anchor: .center)
+                }
+            }
         }
     }
 }
