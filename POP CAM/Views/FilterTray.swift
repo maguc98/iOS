@@ -65,6 +65,7 @@ struct FilterTray: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
