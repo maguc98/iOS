@@ -3,6 +3,13 @@ import Photos
 import SwiftUI
 import UIKit
 
+enum CameraFocusStatus {
+    case idle
+    case focusing
+    case focused
+    case unavailable
+}
+
 @MainActor
 final class CameraService: ObservableObject {
     @Published var isReady = false
@@ -16,6 +23,7 @@ final class CameraService: ObservableObject {
     @Published var zoomFactor: CGFloat = 1
     @Published var exposureBias: Float = 0
     @Published var isExposureFocusLocked = false
+    @Published var focusStatus: CameraFocusStatus = .idle
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
     @Published var errorMessage: String?
@@ -171,28 +179,66 @@ final class CameraService: ObservableObject {
             guard let self, let device = self.activeInput?.device else { return }
             do {
                 try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = normalized
-                    if device.isFocusModeSupported(.autoFocus) {
-                        device.focusMode = .autoFocus
-                    } else if device.isFocusModeSupported(.continuousAutoFocus) {
-                        device.focusMode = .continuousAutoFocus
-                    }
                 }
                 if device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = normalized
-                    if device.isExposureModeSupported(.continuousAutoExposure) {
-                        device.exposureMode = .continuousAutoExposure
-                    } else if device.isExposureModeSupported(.autoExpose) {
-                        device.exposureMode = .autoExpose
-                    }
                 }
-                device.unlockForConfiguration()
-                DispatchQueue.main.async { self.isExposureFocusLocked = false }
+
+                let canAutofocus: Bool
+                if device.isFocusModeSupported(.autoFocus) {
+                    device.focusMode = .autoFocus
+                    canAutofocus = true
+                } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                    canAutofocus = true
+                } else {
+                    canAutofocus = false
+                }
+
+                if device.isExposureModeSupported(.autoExpose) {
+                    device.exposureMode = .autoExpose
+                } else if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+
+                DispatchQueue.main.async {
+                    self.isExposureFocusLocked = false
+                    self.focusStatus = canAutofocus ? .focusing : .unavailable
+                }
+
+                guard canAutofocus else { return }
+                self.monitorFocusSettling(device: device, startedAt: ProcessInfo.processInfo.systemUptime)
             } catch {
                 DispatchQueue.main.async {
                     self.errorMessage = "暂时无法对焦，请再试一次。"
+                    self.focusStatus = .unavailable
                 }
+            }
+        }
+    }
+
+    private func monitorFocusSettling(device: AVCaptureDevice, startedAt: TimeInterval) {
+        sessionQueue.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self,
+                  self.activeInput?.device.uniqueID == device.uniqueID else { return }
+
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            // Give the autofocus system time to begin moving before treating
+            // a stable lens position as a completed focus attempt.
+            if elapsed >= 0.35 && !device.isAdjustingFocus {
+                DispatchQueue.main.async {
+                    self.focusStatus = .focused
+                }
+            } else if elapsed >= 3.0 {
+                DispatchQueue.main.async {
+                    self.focusStatus = .unavailable
+                }
+            } else {
+                self.monitorFocusSettling(device: device, startedAt: startedAt)
             }
         }
     }
