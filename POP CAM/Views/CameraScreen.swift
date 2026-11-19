@@ -58,7 +58,7 @@ struct CameraScreen: View {
                 modeFooter
                     .padding(.top, 18)
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 16)
             .padding(.top, 10)
             .padding(.bottom, 12)
 
@@ -99,7 +99,7 @@ struct CameraScreen: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("POP")
@@ -109,6 +109,8 @@ struct CameraScreen: View {
                 }
                 .font(.system(size: 22, weight: .black, design: .rounded))
                 .tracking(-0.8)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
                 Text("MAKE TODAY POP")
                     .font(.system(size: 8, weight: .bold, design: .rounded))
@@ -118,7 +120,7 @@ struct CameraScreen: View {
 
             Spacer()
 
-            HStack(spacing: 10) {
+            HStack(spacing: 7) {
                 Menu {
                     Button("关闭", systemImage: "timer") { timerSeconds = 0 }
                     Button("3 秒", systemImage: "3.circle") { timerSeconds = 3 }
@@ -167,7 +169,7 @@ struct CameraScreen: View {
             Text(value == 1 ? "1×" : "\(Int(value))×")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(abs(zoom - value) < 0.01 ? Color.black : .white)
-                .frame(width: 42, height: 32)
+                .frame(width: 38, height: 32)
                 .background {
                     if abs(zoom - value) < 0.01 {
                         Circle().fill(Color(hex: 0xFFE45E))
@@ -358,7 +360,7 @@ private struct HeaderIcon: View {
         Image(systemName: symbol)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(active ? tint : .white)
-            .frame(width: 38, height: 38)
+            .frame(width: 34, height: 34)
             .background(.black.opacity(0.28), in: Circle())
             .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 1))
     }
