@@ -233,7 +233,7 @@ enum RealESRGANProcessor {
               array.shape[2].intValue == height,
               array.shape[3].intValue == width else { return nil }
 
-        let strides = array.strides.map(\\.intValue)
+        let strides = array.strides.map(\.intValue)
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
