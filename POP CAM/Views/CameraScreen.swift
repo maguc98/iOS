@@ -5,6 +5,7 @@ import UIKit
 
 struct CameraScreen: View {
     @StateObject private var camera = CameraService()
+    @AppStorage("popcam.macaronPalette") private var selectedPaletteID = "sakura"
     @StateObject private var levelMonitor = CameraLevelMonitor()
     @State private var timerSeconds = 0
     @State private var countdown: Int?
@@ -18,16 +19,15 @@ struct CameraScreen: View {
     @State private var focusIndicatorPoint: CGPoint?
     @State private var focusIndicatorID = 0
 
+    private var selectedPalette: MacaronPalette {
+        MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
+    }
+
     var body: some View {
         ZStack {
             // Soft macaron canvas fills everything outside the live viewfinder.
             LinearGradient(
-                colors: [
-                    Color(hex: 0xE8F4FA),
-                    Color(hex: 0xF1ECFA),
-                    Color(hex: 0xFCEBF1),
-                    Color(hex: 0xEAF5E9)
-                ],
+                colors: selectedPalette.background.map { Color(hex: $0) },
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -508,6 +508,68 @@ struct CameraScreen: View {
                         .background(Color.white.opacity(0.82), in: Capsule())
                 }
 
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("马卡龙配色", systemImage: "paintpalette.fill")
+                            .font(.system(size: 14, weight: .bold))
+                        Spacer()
+                        Text("12 款")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: 0x7D8797))
+                    }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 9), count: 3), spacing: 10) {
+                        ForEach(MacaronPalette.all) { palette in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    selectedPaletteID = palette.id
+                                }
+                            } label: {
+                                VStack(spacing: 6) {
+                                    HStack(spacing: 0) {
+                                        ForEach(Array(palette.background.enumerated()), id: \.offset) { _, color in
+                                            Color(hex: color)
+                                        }
+                                    }
+                                    .frame(height: 30)
+                                    .clipShape(Capsule())
+                                    .overlay(alignment: .trailing) {
+                                        if selectedPaletteID == palette.id {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 17, weight: .bold))
+                                                .foregroundStyle(Color(hex: palette.accent))
+                                                .padding(.trailing, 7)
+                                        }
+                                    }
+                                    Text(palette.name)
+                                        .font(.system(size: 11, weight: selectedPaletteID == palette.id ? .bold : .medium))
+                                        .foregroundStyle(Color(hex: 0x3D4352))
+                                        .lineLimit(1)
+                                }
+                                .padding(6)
+                                .background(
+                                    selectedPaletteID == palette.id
+                                        ? Color.white.opacity(0.95)
+                                        : Color.white.opacity(0.52),
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(
+                                            selectedPaletteID == palette.id ? Color(hex: palette.accent) : Color.white.opacity(0.8),
+                                            lineWidth: selectedPaletteID == palette.id ? 2 : 1
+                                        )
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(palette.name)配色")
+                            .accessibilityAddTraits(selectedPaletteID == palette.id ? .isSelected : [])
+                        }
+                    }
+                }
+                .padding(14)
+                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(.white, lineWidth: 1))
+
                 VStack(spacing: 0) {
                     settingToggle(
                         title: "三分构图网格",
@@ -548,7 +610,7 @@ struct CameraScreen: View {
                             .foregroundStyle(Color(hex: 0x687386))
                     }
                     Slider(value: $exposure, in: -2...2, step: 0.1)
-                        .tint(Color(hex: 0xFF9A58))
+                        .tint(Color(hex: selectedPalette.accent))
                         .onChange(of: exposure) { _, value in
                             camera.setExposure(Float(value))
                         }
@@ -567,7 +629,7 @@ struct CameraScreen: View {
                             .foregroundStyle(Color(hex: 0x687386))
                     }
                     Slider(value: $zoom, in: 1...5, step: 0.1)
-                        .tint(Color(hex: 0x78BDF4))
+                        .tint(Color(hex: selectedPalette.secondaryAccent))
                         .onChange(of: zoom) { _, value in
                             camera.setZoom(CGFloat(value))
                         }
@@ -579,7 +641,7 @@ struct CameraScreen: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
+                colors: selectedPalette.background.map { Color(hex: $0) },
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -611,7 +673,7 @@ struct CameraScreen: View {
                 }
             }
         }
-        .tint(Color(hex: 0x83CFA4))
+        .tint(Color(hex: selectedPalette.accent))
         .padding(.vertical, 12)
     }
 
@@ -668,4 +730,28 @@ private final class CameraLevelMonitor: ObservableObject {
         guard manager.isDeviceMotionActive else { return }
         manager.stopDeviceMotionUpdates()
     }
+}
+
+
+private struct MacaronPalette: Identifiable {
+    let id: String
+    let name: String
+    let background: [UInt32]
+    let accent: UInt32
+    let secondaryAccent: UInt32
+
+    static let all: [MacaronPalette] = [
+        .init(id: "sakura", name: "樱花粉", background: [0xFFF0F4, 0xFCE4EC, 0xF7EAF8], accent: 0xF48BA8, secondaryAccent: 0xC6A4E8),
+        .init(id: "cream", name: "奶油杏", background: [0xFFF4E8, 0xFFE8D5, 0xFBEBDD], accent: 0xE9A36F, secondaryAccent: 0xE9C18B),
+        .init(id: "mint", name: "薄荷绿", background: [0xE9F8EF, 0xDDF3E7, 0xEAF7F2], accent: 0x75C99A, secondaryAccent: 0x8CCFC4),
+        .init(id: "sky", name: "天空蓝", background: [0xEAF5FF, 0xDDEEFF, 0xE9F1FF], accent: 0x78B8EE, secondaryAccent: 0x9AAFEA),
+        .init(id: "lavender", name: "薰衣紫", background: [0xF3EDFF, 0xEAE2FA, 0xF5EDFF], accent: 0xA991E2, secondaryAccent: 0xC3A5E8),
+        .init(id: "aqua", name: "海盐青", background: [0xE5F8F8, 0xD9F2F3, 0xE8F7F4], accent: 0x69C4C8, secondaryAccent: 0x8CCFC4),
+        .init(id: "peach", name: "蜜桃橙", background: [0xFFF0E8, 0xFFE3D8, 0xFFF1E7], accent: 0xF39A75, secondaryAccent: 0xF2BD8A),
+        .init(id: "lemon", name: "柠檬黄", background: [0xFFF9DF, 0xFFF1C9, 0xFFF8E7], accent: 0xE6C85C, secondaryAccent: 0xE8B77D),
+        .init(id: "berry", name: "莓果紫", background: [0xF8ECFA, 0xF1E2F7, 0xF9EFF8], accent: 0xC18BCF, secondaryAccent: 0xD5A4C9),
+        .init(id: "mist", name: "雾霾蓝", background: [0xEAF0FA, 0xE0E8F6, 0xEDF1FA], accent: 0x8EA9D4, secondaryAccent: 0xA9B7D8),
+        .init(id: "grass", name: "青草绿", background: [0xEEF8E8, 0xE3F2D9, 0xF1F7E9], accent: 0x91C879, secondaryAccent: 0xB3CE83),
+        .init(id: "sorbet", name: "冰淇淋", background: [0xEAF8F8, 0xF0EAFE, 0xFCEAF3], accent: 0x9BADD9, secondaryAccent: 0xD9A6C9)
+    ]
 }
