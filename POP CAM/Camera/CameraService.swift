@@ -284,6 +284,10 @@ final class CameraService: ObservableObject {
             completion(false)
             return
         }
+        savePhoto(image, completion: completion)
+    }
+
+    func savePhoto(_ image: UIImage, completion: @escaping (Bool) -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async { completion(false) }
