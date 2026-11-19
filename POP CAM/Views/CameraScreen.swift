@@ -526,8 +526,8 @@ struct CameraScreen: View {
                             } label: {
                                 VStack(spacing: 6) {
                                     HStack(spacing: 0) {
-                                        ForEach(Array(palette.background.enumerated()), id: \.offset) { _, color in
-                                            Color(hex: color)
+                                        ForEach(palette.background.indices, id: \.self) { index in
+                                            Color(hex: palette.background[index])
                                         }
                                     }
                                     .frame(height: 30)
