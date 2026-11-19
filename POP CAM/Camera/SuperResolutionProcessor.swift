@@ -118,23 +118,9 @@ enum RealESRGANProcessor {
             throw SuperResolutionError.outputTooLarge
         }
 
-        guard let outputContext = CGContext(
-            data: nil,
-            width: outputWidth,
-            height: outputHeight,
-            bitsPerComponent: 8,
-            bytesPerRow: outputWidth * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            throw SuperResolutionError.outputTooLarge
-        }
-        outputContext.interpolationQuality = .high
-        // CGImage cropping uses a top-left pixel origin, while a raw CGContext
-        // draws with a bottom-left origin. Keep tile coordinates in the same
-        // top-left space as the source image.
-        outputContext.translateBy(x: 0, y: CGFloat(outputHeight))
-        outputContext.scaleBy(x: 1, y: -1)
+        // Build the result in a single top-left-origin pixel buffer.
+        // Avoid CGContext transforms when placing individual model tiles.
+        var finalPixels = [UInt8](repeating: 255, count: outputWidth * outputHeight * 4)
 
         let columns = Int(ceil(Double(processingImage.width) / Double(inputWidth)))
         let rows = Int(ceil(Double(processingImage.height) / Double(inputHeight)))
@@ -162,40 +148,30 @@ enum RealESRGANProcessor {
                 ])
                 let prediction = try model.prediction(from: provider)
                 guard let outputArray = prediction.featureValue(for: outputEntry.key)?.multiArrayValue,
-                      let outputTile = makeOutputImage(
-                        array: outputArray,
-                        width: tileOutputWidth,
-                        height: tileOutputHeight
-                      ) else {
+                      let tilePixels = makeOutputPixels(array: outputArray, width: tileOutputWidth, height: tileOutputHeight) else {
                     throw SuperResolutionError.inferenceFailed
                 }
 
-                // Edge tiles are padded to the model's fixed input size.
-                // Crop the valid output area instead of stretching the entire
-                // model tile into a smaller destination rectangle.
-                let validOutputRect = CGRect(
-                    x: 0,
-                    y: 0,
-                    width: actualWidth * scaleX,
-                    height: actualHeight * scaleY
-                )
-                guard let validOutputTile = outputTile.cropping(to: validOutputRect) else {
-                    throw SuperResolutionError.inferenceFailed
+                let validWidth = actualWidth * scaleX
+                let validHeight = actualHeight * scaleY
+                let destinationX = tileX * scaleX
+                let destinationY = tileY * scaleY
+                for row in 0..<validHeight {
+                    let sourceStart = row * tileOutputWidth * 4
+                    let destinationStart = ((destinationY + row) * outputWidth + destinationX) * 4
+                    let byteCount = validWidth * 4
+                    finalPixels.replaceSubrange(
+                        destinationStart..<(destinationStart + byteCount),
+                        with: tilePixels[sourceStart..<(sourceStart + byteCount)]
+                    )
                 }
-                let destination = CGRect(
-                    x: tileX * scaleX,
-                    y: tileY * scaleY,
-                    width: actualWidth * scaleX,
-                    height: actualHeight * scaleY
-                )
-                outputContext.draw(validOutputTile, in: destination)
 
                 completedTiles += 1
                 progress(Double(completedTiles) / Double(totalTiles))
             }
         }
 
-        guard let result = outputContext.makeImage() else {
+        guard let result = makeCGImage(pixels: finalPixels, width: outputWidth, height: outputHeight) else {
             throw SuperResolutionError.inferenceFailed
         }
         return UIImage(cgImage: result, scale: 1, orientation: .up)
@@ -250,13 +226,14 @@ enum RealESRGANProcessor {
         return array
     }
 
-    private static func makeOutputImage(array: MLMultiArray, width: Int, height: Int) -> CGImage? {
+    private static func makeOutputPixels(array: MLMultiArray, width: Int, height: Int) -> [UInt8]? {
         guard array.shape.count == 4,
+              array.shape[0].intValue == 1,
               array.shape[1].intValue == 3,
               array.shape[2].intValue == height,
               array.shape[3].intValue == width else { return nil }
 
-        let strides = array.strides.map(\.intValue)
+        let strides = array.strides.map(\\.intValue)
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
@@ -268,7 +245,10 @@ enum RealESRGANProcessor {
                 }
             }
         }
+        return pixels
+    }
 
+    private static func makeCGImage(pixels: [UInt8], width: Int, height: Int) -> CGImage? {
         let data = Data(pixels)
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         return CGImage(
