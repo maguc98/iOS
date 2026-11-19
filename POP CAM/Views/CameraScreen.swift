@@ -15,14 +15,34 @@ struct CameraScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            Group {
-                if let frame = camera.previewImage {
-                    Image(decorative: frame, scale: 1)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    CameraPreview(session: camera.session)
+            // Bound both the initial AVFoundation preview and the processed
+            // SwiftUI frame to the same viewport. Without this, the first
+            // processed frame's pixel dimensions can expand the parent ZStack
+            // and push every camera control off-screen.
+            GeometryReader { previewGeometry in
+                Group {
+                    if let frame = camera.previewImage {
+                        Image(decorative: frame, scale: 1)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(
+                                width: previewGeometry.size.width,
+                                height: previewGeometry.size.height
+                            )
+                            .clipped()
+                    } else {
+                        CameraPreview(session: camera.session)
+                            .frame(
+                                width: previewGeometry.size.width,
+                                height: previewGeometry.size.height
+                            )
+                    }
                 }
+                .frame(
+                    width: previewGeometry.size.width,
+                    height: previewGeometry.size.height
+                )
+                .clipped()
             }
             .ignoresSafeArea()
             .overlay {
