@@ -21,6 +21,7 @@ struct CameraScreen: View {
     @State private var exposure: Double = 0
     @State private var focusIndicatorPoint: CGPoint?
     @State private var focusIndicatorID = 0
+    @State private var focusZonesVisible = false
 
     private var selectedPalette: MacaronPalette {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
@@ -125,6 +126,13 @@ struct CameraScreen: View {
                             .position(focusIndicatorPoint)
                             .transition(.scale(scale: 0.72).combined(with: .opacity))
                             .allowsHitTesting(false)
+                    }
+
+                    if focusZonesVisible {
+                        FocusZoneGrid(isFocused: camera.focusStatus == .focused)
+                            .transition(.opacity)
+                            .allowsHitTesting(false)
+                            .zIndex(12)
                     }
                 }
                 .frame(width: width, height: height)
@@ -316,7 +324,8 @@ struct CameraScreen: View {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         if abs(dy) > 24 && abs(dy) > abs(dx) {
                             activeTool = dy < 0 ? .superResolution : .filters
-                            isToolPanelExpanded = false
+                            isToolPanelExpanded = dy < 0
+                            if dy > 0 { focusZonesVisible = false }
                         } else if abs(dx) < 14 && abs(dy) < 14 {
                             isToolPanelExpanded.toggle()
                         }
@@ -380,6 +389,7 @@ struct CameraScreen: View {
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         isToolPanelExpanded = false
+                        focusZonesVisible = false
                     }
                 } label: {
                     Image(systemName: "chevron.down")
@@ -390,6 +400,47 @@ struct CameraScreen: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Button {
+                focusZonesVisible = true
+                camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: camera.focusStatus == .focused ? "viewfinder.circle.fill" : "viewfinder")
+                        .font(.system(size: 18, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(focusStatusTitle)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                        Text("半按快门式单次自动对焦 · 对准画面中心")
+                            .font(.system(size: 9, weight: .medium))
+                            .opacity(0.72)
+                    }
+                    Spacer(minLength: 4)
+                    if camera.focusStatus == .focusing {
+                        ProgressView()
+                            .tint(Color(hex: 0x32D46A))
+                    } else {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .opacity(0.65)
+                    }
+                }
+                .foregroundStyle(camera.focusStatus == .focused ? Color.white : Color(hex: 0x3D4352))
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(
+                    camera.focusStatus == .focused
+                        ? Color(hex: 0x32D46A)
+                        : Color(hex: 0xEAF7EF),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(camera.focusStatus == .focusing)
 
             Toggle(isOn: $superResolutionEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -421,6 +472,15 @@ struct CameraScreen: View {
                         .stroke(Color.white.opacity(0.96), lineWidth: 1)
                 }
                 .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 12, y: 4)
+        }
+    }
+
+    private var focusStatusTitle: String {
+        switch camera.focusStatus {
+        case .idle: return "自动对焦"
+        case .focusing: return "正在对焦…"
+        case .focused: return "对焦完成"
+        case .unavailable: return "重新尝试对焦"
         }
     }
 
@@ -857,6 +917,30 @@ private struct FocusReticle: Shape {
         path.addLine(to: CGPoint(x: inset, y: rect.maxY - inset))
         path.addLine(to: CGPoint(x: inset, y: rect.maxY - length))
         return path
+    }
+}
+
+private struct FocusZoneGrid: View {
+    let isFocused: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                ForEach(0..<9, id: \.self) { index in
+                    FocusReticle()
+                        .stroke(
+                            isFocused ? Color(hex: 0x32D46A) : Color.white.opacity(0.92),
+                            style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+                        )
+                        .frame(width: 27, height: 27)
+                        .shadow(color: .black.opacity(0.38), radius: 2)
+                        .position(
+                            x: geometry.size.width * CGFloat(index % 3 + 1) / 4,
+                            y: geometry.size.height * CGFloat(index / 3 + 1) / 4
+                        )
+                }
+            }
+        }
     }
 }
 
