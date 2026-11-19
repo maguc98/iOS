@@ -12,31 +12,33 @@ struct PhotoReviewView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.055, green: 0.06, blue: 0.08).ignoresSafeArea()
+            LinearGradient(colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
 
             VStack(spacing: 18) {
                 HStack {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(hex: 0x3D4352))
                             .frame(width: 42, height: 42)
-                            .background(.white.opacity(0.12), in: Circle())
+                            .background(Color.white.opacity(0.78), in: Circle())
                     }
                     Spacer()
                     Text("YOUR SNAP")
                         .font(.system(size: 12, weight: .heavy, design: .rounded))
                         .tracking(2.2)
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(Color(hex: 0x3D4352).opacity(0.82))
                     Spacer()
                     Button {
                         showShareSheet = true
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(hex: 0x3D4352))
                             .frame(width: 42, height: 42)
-                            .background(.white.opacity(0.12), in: Circle())
+                            .background(Color.white.opacity(0.78), in: Circle())
                     }
                 }
                 .padding(.horizontal, 22)
@@ -49,14 +51,14 @@ struct PhotoReviewView: View {
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .padding(.horizontal, 18)
-                    .shadow(color: .black.opacity(0.25), radius: 22, y: 12)
+                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.22), radius: 22, y: 12)
 
                 Spacer(minLength: 4)
 
                 if saveFailed {
                     Text("保存失败，请检查照片权限后重试。")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0xFF9B9B))
+                        .foregroundStyle(Color(hex: 0xB8485B))
                 }
 
                 Button {
@@ -89,7 +91,7 @@ struct PhotoReviewView: View {
             ActivityShareSheet(items: [image])
                 .presentationDetents([.medium])
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 
