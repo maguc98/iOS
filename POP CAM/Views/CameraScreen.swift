@@ -96,6 +96,13 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
+                    if showFilters {
+                        filterPicker
+                            .frame(width: width - 20)
+                            .position(x: width / 2, y: height - 48)
+                            .zIndex(5)
+                    }
+
                     if let focusIndicatorPoint {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
                             .stroke(Color(hex: 0xFFE45E), lineWidth: 2)
@@ -147,8 +154,10 @@ struct CameraScreen: View {
                     header
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
-                        filterPicker
-                            .frame(width: showFilters ? 142 : 112)
+                        if !showFilters {
+                            filterPicker
+                                .frame(width: 112)
+                        }
                         zoomControl
                             .frame(maxWidth: .infinity)
                     }
@@ -284,6 +293,7 @@ struct CameraScreen: View {
                 }
                 FilterTray(selection: $camera.selectedFilter)
                     .frame(maxWidth: .infinity)
+                    .frame(height: 66)
             } else {
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -309,7 +319,7 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(showFilters ? 5 : 4)
+        .padding(showFilters ? 8 : 4)
         .background {
             if showFilters {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
