@@ -8,6 +8,7 @@ enum SuperResolutionError: LocalizedError {
     case unsupportedModel
     case unsupportedImage
     case outputTooLarge
+    case modelRequiresNewerOS
     case inferenceFailed
 
     var errorDescription: String? {
@@ -20,6 +21,8 @@ enum SuperResolutionError: LocalizedError {
             return "无法读取这张照片，请尝试另一张照片。"
         case .outputTooLarge:
             return "这张照片使用 4× 超分会占用过多内存，请切换为 2×。"
+        case .modelRequiresNewerOS:
+            return "当前 AI 模型需要 iOS 18 或更新版本。"
         case .inferenceFailed:
             return "AI 超分处理失败，请重试或切换为 2×。"
         }
@@ -32,7 +35,16 @@ enum RealESRGANProcessor {
         scale: Int,
         progress: @escaping (Double) -> Void
     ) throws -> UIImage {
-        guard let original = image.cgImage else {
+        guard #available(iOS 18.0, *) else {
+            throw SuperResolutionError.modelRequiresNewerOS
+        }
+
+        let normalizedFormat = UIGraphicsImageRendererFormat()
+        normalizedFormat.scale = 1
+        let normalizedImage = UIGraphicsImageRenderer(size: image.size, format: normalizedFormat).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let original = normalizedImage.cgImage else {
             throw SuperResolutionError.unsupportedImage
         }
 
