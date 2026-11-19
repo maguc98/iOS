@@ -87,12 +87,9 @@ final class CameraService: ObservableObject {
             self.videoOutput.setSampleBufferDelegate(self.liveProcessor, queue: self.videoQueue)
             if self.session.canAddOutput(self.videoOutput) {
                 self.session.addOutput(self.videoOutput)
-                if let connection = self.videoOutput.connection(with: .video),
-                   connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
-                }
             }
             self.session.commitConfiguration()
+            self.applyPortraitOrientation()
             self.session.startRunning()
 
             DispatchQueue.main.async {
@@ -104,6 +101,17 @@ final class CameraService: ObservableObject {
 
     private func cameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+    }
+
+    private func applyPortraitOrientation() {
+        for output in [videoOutput, photoOutput] {
+            guard let connection = output.connection(with: .video) else { continue }
+            if connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
+            } else if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+        }
     }
 
     func switchCamera() {
@@ -119,10 +127,6 @@ final class CameraService: ObservableObject {
             if self.session.canAddInput(newInput) {
                 self.session.addInput(newInput)
                 self.activeInput = newInput
-                if let connection = self.videoOutput.connection(with: .video),
-                   connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
-                }
                 DispatchQueue.main.async {
                     self.cameraPosition = device.position
                     self.flashEnabled = false
@@ -132,6 +136,7 @@ final class CameraService: ObservableObject {
                 self.session.addInput(oldInput)
             }
             self.session.commitConfiguration()
+            self.applyPortraitOrientation()
         }
     }
 
@@ -206,11 +211,13 @@ final class CameraService: ObservableObject {
                     guard self.session.canAddInput(targetInput) else {
                         self.session.addInput(self.activeInput!)
                         self.session.commitConfiguration()
+                        self.applyPortraitOrientation()
                         return
                     }
                     self.session.addInput(targetInput)
                     self.activeInput = targetInput
                     self.session.commitConfiguration()
+                    self.applyPortraitOrientation()
                 }
                 try targetDevice.lockForConfiguration()
                 targetDevice.videoZoomFactor = wantsUltraWide
