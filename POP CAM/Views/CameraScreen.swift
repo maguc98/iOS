@@ -8,6 +8,7 @@ struct CameraScreen: View {
     @State private var countdown: Int?
     @State private var showReview = false
     @State private var showSettings = false
+    @State private var showFilters = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
 
@@ -33,7 +34,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.40
+                let centerY = previewGeometry.size.height * 0.465
 
                 Group {
                     if let frame = camera.previewImage {
@@ -66,7 +67,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.40
+                                y: maskGeometry.size.height * 0.465
                             )
                     }
                 }
@@ -85,19 +86,8 @@ struct CameraScreen: View {
                 VStack(spacing: 0) {
                     header
                     Spacer(minLength: 18)
-                    FilterTray(selection: $camera.selectedFilter)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 34)
+                    filterPicker
                         .padding(.bottom, 18)
-                        .background {
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(Color.white.opacity(0.58))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
-                                }
-                                .padding(.horizontal, 2)
-                        }
                     zoomControl
                         .padding(.bottom, 22)
                     shutterControls
@@ -198,6 +188,69 @@ struct CameraScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var filterPicker: some View {
+        VStack(spacing: 8) {
+            if showFilters {
+                HStack {
+                    Text("选择滤镜")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                            showFilters = false
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x596171))
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.72), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                FilterTray(selection: $camera.selectedFilter)
+                    .frame(maxWidth: .infinity)
+            } else {
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        showFilters = true
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "camera.filters")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("滤镜 · \\(camera.selectedFilter.rawValue)")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 10, weight: .bold))
+                            .opacity(0.7)
+                    }
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                    .padding(.horizontal, 16)
+                    .frame(height: 38)
+                    .background(Color.white.opacity(0.76), in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .background {
+            if showFilters {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.white.opacity(0.82))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                    }
+                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.14), radius: 12, y: 4)
+            }
+        }
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: showFilters)
     }
 
     private var zoomControl: some View {
