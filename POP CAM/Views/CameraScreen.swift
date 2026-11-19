@@ -474,7 +474,7 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
             }
 
-old AF button remove from superres panel            Toggle(isOn: $superResolutionEnabled) {
+            Toggle(isOn: $superResolutionEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("拍摄后自动增强")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
