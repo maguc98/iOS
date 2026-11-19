@@ -85,6 +85,10 @@ final class CameraService: ObservableObject {
             self.videoOutput.setSampleBufferDelegate(self.liveProcessor, queue: self.videoQueue)
             if self.session.canAddOutput(self.videoOutput) {
                 self.session.addOutput(self.videoOutput)
+                if let connection = self.videoOutput.connection(with: .video),
+                   connection.isVideoOrientationSupported {
+                    connection.videoOrientation = .portrait
+                }
             }
             self.session.commitConfiguration()
             self.session.startRunning()
@@ -112,6 +116,10 @@ final class CameraService: ObservableObject {
             if self.session.canAddInput(newInput) {
                 self.session.addInput(newInput)
                 self.activeInput = newInput
+                if let connection = self.videoOutput.connection(with: .video),
+                   connection.isVideoOrientationSupported {
+                    connection.videoOrientation = .portrait
+                }
                 DispatchQueue.main.async {
                     self.cameraPosition = device.position
                     self.flashEnabled = false
@@ -128,7 +136,7 @@ final class CameraService: ObservableObject {
         guard isReady else { return }
         let settings = AVCapturePhotoSettings()
         settings.photoQualityPrioritization = .quality
-        if flashEnabled, cameraPosition == .back, photoOutput.supportedFlashModes.contains(.on) {
+        if flashEnabled, let device = activeInput?.device, device.hasFlash {
             settings.flashMode = .on
         }
         let processor = PhotoCaptureProcessor { [weak self] image in
@@ -149,7 +157,7 @@ final class CameraService: ObservableObject {
         zoomFactor = clamped
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device,
-                  device.isRampToVideoZoomFactorSupported || device.isVideoZoomFactorSupported else { return }
+                  device.isVideoZoomFactorSupported else { return }
             do {
                 try device.lockForConfiguration()
                 device.videoZoomFactor = min(clamped, device.activeFormat.videoMaxZoomFactor)
@@ -191,9 +199,5 @@ final class CameraService: ObservableObject {
                 DispatchQueue.main.async { completion(success) }
             }
         }
-    }
-
-    func clearCapture() {
-        capturedImage = nil
     }
 }
