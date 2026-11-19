@@ -15,6 +15,7 @@
     A10000000000000000000009 /* PhotoReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* PhotoReviewView.swift */; };
     A10000000000000000000010 /* SuperResolutionProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* SuperResolutionProcessor.swift */; };
     A10000000000000000000011 /* RealESRGAN-x4v3.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* RealESRGAN-x4v3.mlpackage */; };
+    A10000000000000000000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* Assets.xcassets */; };
 
     B10000000000000000000001 /* POP_CAMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POP_CAMApp.swift; sourceTree = "<group>"; };
     B10000000000000000000002 /* CameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraService.swift; sourceTree = "<group>"; };
@@ -28,12 +29,13 @@
     B10000000000000000000012 /* SuperResolutionProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperResolutionProcessor.swift; sourceTree = "<group>"; };
     B10000000000000000000013 /* RealESRGAN-x4v3.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper.mlpackage; path = "RealESRGAN-x4v3.mlpackage"; sourceTree = "<group>"; };
     B10000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+    B10000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
     B10000000000000000000011 /* POP CAM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "POP CAM.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 
     G10000000000000000000001 = {
       isa = PBXGroup;
       path = "POP CAM";
-      children = (G10000000000000000000002, G10000000000000000000003, G10000000000000000000004, G10000000000000000000005, G10000000000000000000006, G10000000000000000000007);
+      children = (G10000000000000000000002, G10000000000000000000003, G10000000000000000000004, G10000000000000000000005, G10000000000000000000006, B10000000000000000000014, G10000000000000000000007);
       sourceTree = "<group>";
     };
     G10000000000000000000002 /* App */ = {isa = PBXGroup; children = (B10000000000000000000001,); path = App; sourceTree = "<group>"; };
@@ -77,7 +79,7 @@
       runOnlyForDeploymentPostprocessing = 0;
     };
     S10000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-    S10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+    S10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000012,); runOnlyForDeploymentPostprocessing = 0; };
 
     L10000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000001, C10000000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
     L10000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000003, C10000000000000000000004,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
