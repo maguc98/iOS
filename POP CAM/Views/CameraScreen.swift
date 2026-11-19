@@ -40,7 +40,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.465
+                let centerY = previewGeometry.size.height * 0.395
 
                 ZStack {
                     Group {
@@ -127,7 +127,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.465
+                                y: maskGeometry.size.height * 0.395
                             )
                     }
                 }
@@ -147,12 +147,12 @@ struct CameraScreen: View {
                     header
                     Spacer(minLength: 18)
                     filterPicker
-                        .padding(.bottom, 18)
+                        .padding(.bottom, 8)
                     zoomControl
-                        .padding(.bottom, 22)
+                        .padding(.bottom, 10)
                     shutterControls
                     modeFooter
-                        .padding(.top, 18)
+                        .padding(.top, 10)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
@@ -290,7 +290,7 @@ struct CameraScreen: View {
                     HStack(spacing: 8) {
                         Image(systemName: "camera.filters")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("滤镜 · \\(camera.selectedFilter.rawValue)")
+                        Text("滤镜 · \(camera.selectedFilter.rawValue)")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                         Image(systemName: "chevron.up")
                             .font(.system(size: 10, weight: .bold))
@@ -298,7 +298,7 @@ struct CameraScreen: View {
                     }
                     .foregroundStyle(Color(hex: 0x3D4352))
                     .padding(.horizontal, 16)
-                    .frame(height: 38)
+                    .frame(height: 34)
                     .background(Color.white.opacity(0.76), in: Capsule())
                     .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
                     .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
@@ -306,7 +306,7 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(10)
+        .padding(7)
         .background {
             if showFilters {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -352,7 +352,7 @@ struct CameraScreen: View {
             zoomButton(3)
         }
         .padding(5)
-        .padding(5)
+        .padding(4)
         .background(Color.white.opacity(0.76), in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
@@ -366,7 +366,7 @@ struct CameraScreen: View {
             Text(value == 0.5 ? "0.5×" : (value == 1 ? "1×" : "\(Int(value))×"))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x3D4352))
-                .frame(width: 38, height: 32)
+                .frame(width: 40, height: 30)
                 .background {
                     if abs(zoom - value) < 0.01 {
                         Capsule().fill(Color(hex: 0xFFE45E))
