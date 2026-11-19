@@ -1,14 +1,18 @@
 import AVFoundation
+import CoreMotion
 import SwiftUI
 import UIKit
 
 struct CameraScreen: View {
     @StateObject private var camera = CameraService()
+    @StateObject private var levelMonitor = CameraLevelMonitor()
     @State private var timerSeconds = 0
     @State private var countdown: Int?
     @State private var showReview = false
     @State private var showSettings = false
     @State private var showFilters = false
+    @State private var showGrid = false
+    @State private var showLevel = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
     @State private var focusIndicatorPoint: CGPoint?
@@ -68,6 +72,28 @@ struct CameraScreen: View {
                                 focusIndicatorPoint = nil
                             }
                         }
+                    }
+
+                    if showGrid {
+                        Canvas { context, size in
+                            var lines = Path()
+                            for division in 1...2 {
+                                let x = size.width * CGFloat(division) / 3
+                                let y = size.height * CGFloat(division) / 3
+                                lines.move(to: CGPoint(x: x, y: 0))
+                                lines.addLine(to: CGPoint(x: x, y: size.height))
+                                lines.move(to: CGPoint(x: 0, y: y))
+                                lines.addLine(to: CGPoint(x: size.width, y: y))
+                            }
+                            context.stroke(lines, with: .color(.white.opacity(0.62)), lineWidth: 0.8)
+                        }
+                        .allowsHitTesting(false)
+                    }
+
+                    if showLevel {
+                        levelIndicator
+                            .position(x: width / 2, y: height * 0.13)
+                            .allowsHitTesting(false)
                     }
 
                     if let focusIndicatorPoint {
@@ -154,13 +180,21 @@ struct CameraScreen: View {
         }
         .sheet(isPresented: $showSettings) {
             settingsSheet
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
+                .presentationCornerRadius(28)
                 .presentationDragIndicator(.visible)
         }
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
         }
-        .onAppear { camera.prepare() }
+        .onAppear {
+            camera.prepare()
+            if showLevel { levelMonitor.start() }
+        }
+        .onChange(of: showLevel) { _, enabled in
+            if enabled { levelMonitor.start() } else { levelMonitor.stop() }
+        }
+        .onDisappear { levelMonitor.stop() }
         .alert("POP CAM", isPresented: Binding(
             get: { camera.errorMessage != nil },
             set: { if !$0 { camera.errorMessage = nil } }
@@ -287,6 +321,29 @@ struct CameraScreen: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: showFilters)
     }
 
+    private var levelIndicator: some View {
+        let isLevel = abs(levelMonitor.rollDegrees) < 1.5
+        return HStack(spacing: 7) {
+            ZStack {
+                Capsule()
+                    .fill(isLevel ? Color(hex: 0x83DFA6) : .white.opacity(0.9))
+                    .frame(width: 34, height: 2)
+                Circle()
+                    .fill(isLevel ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E))
+                    .frame(width: 7, height: 7)
+            }
+            .rotationEffect(.degrees(-levelMonitor.rollDegrees))
+            Text(isLevel ? "水平" : String(format: "%+.0f°", levelMonitor.rollDegrees))
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.black.opacity(0.48), in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
+    }
+
     private var zoomControl: some View {
         HStack(spacing: 9) {
             zoomButton(0.5)
@@ -295,8 +352,10 @@ struct CameraScreen: View {
             zoomButton(3)
         }
         .padding(5)
-        .background(.black.opacity(0.28), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+        .padding(5)
+        .background(Color.white.opacity(0.76), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
     }
 
     private func zoomButton(_ value: Double) -> some View {
@@ -306,11 +365,11 @@ struct CameraScreen: View {
         } label: {
             Text(value == 0.5 ? "0.5×" : (value == 1 ? "1×" : "\(Int(value))×"))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(abs(zoom - value) < 0.01 ? Color.black : .white)
+                .foregroundStyle(Color(hex: 0x3D4352))
                 .frame(width: 38, height: 32)
                 .background {
                     if abs(zoom - value) < 0.01 {
-                        Circle().fill(Color(hex: 0xFFE45E))
+                        Capsule().fill(Color(hex: 0xFFE45E))
                     }
                 }
         }
@@ -426,49 +485,130 @@ struct CameraScreen: View {
     }
 
     private var settingsSheet: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack {
-                Text("拍摄设置")
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-                Spacer()
-                Button("完成") { showSettings = false }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0xFF8A45))
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("曝光补偿", systemImage: "sun.max.fill")
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("拍摄设置")
+                            .font(.system(size: 23, weight: .black, design: .rounded))
+                        Text("把每一张照片调整到刚刚好")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x778091))
+                    }
                     Spacer()
-                    Text(String(format: "%+.1f EV", exposure))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                    Button("完成") { showSettings = false }
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 9)
+                        .background(Color.white.opacity(0.82), in: Capsule())
                 }
-                Slider(value: $exposure, in: -2...2, step: 0.1) { _ in
-                    camera.setExposure(Float(exposure))
-                }
-                .tint(Color(hex: 0xFF8A45))
-            }
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("变焦", systemImage: "plus.magnifyingglass")
-                    Spacer()
-                    Text(String(format: "%.1f×", zoom))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    settingToggle(
+                        title: "三分构图网格",
+                        subtitle: "显示辅助线，帮助安排画面",
+                        symbol: "grid",
+                        isOn: $showGrid
+                    )
+                    Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
+                    settingToggle(
+                        title: "水平仪",
+                        subtitle: "拍摄时辅助保持画面水平",
+                        symbol: "level",
+                        isOn: $showLevel
+                    )
+                    Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
+                    settingToggle(
+                        title: "锁定对焦与曝光",
+                        subtitle: "固定当前焦点和测光，点击画面可重新对焦",
+                        symbol: "viewfinder",
+                        isOn: Binding(
+                            get: { camera.isExposureFocusLocked },
+                            set: { camera.setExposureFocusLocked($0) }
+                        )
+                    )
                 }
-                Slider(value: $zoom, in: 1...5, step: 0.1) { _ in
-                    camera.setZoom(CGFloat(zoom))
+                .padding(.horizontal, 14)
+                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(.white, lineWidth: 1))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("曝光补偿", systemImage: "sun.max.fill")
+                            .font(.system(size: 14, weight: .bold))
+                        Spacer()
+                        Text(String(format: "%+.1f EV", exposure))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Color(hex: 0x687386))
+                    }
+                    Slider(value: $exposure, in: -2...2, step: 0.1)
+                        .tint(Color(hex: 0xFF9A58))
+                        .onChange(of: exposure) { _, value in
+                            camera.setExposure(Float(value))
+                        }
                 }
-                .tint(Color(hex: 0x69B7FF))
+                .padding(16)
+                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("精细变焦", systemImage: "plus.magnifyingglass")
+                            .font(.system(size: 14, weight: .bold))
+                        Spacer()
+                        Text(String(format: "%.1f×", zoom))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Color(hex: 0x687386))
+                    }
+                    Slider(value: $zoom, in: 1...5, step: 0.1)
+                        .tint(Color(hex: 0x78BDF4))
+                        .onChange(of: zoom) { _, value in
+                            camera.setZoom(CGFloat(value))
+                        }
+                }
+                .padding(16)
+                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            Spacer(minLength: 0)
+            .padding(22)
         }
-        .padding(24)
-        .padding(.top, 8)
-        .background(Color(red: 0.08, green: 0.085, blue: 0.11))
-        .foregroundStyle(.white)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .foregroundStyle(Color(hex: 0x3D4352))
+    }
+
+    private func settingToggle(
+        title: String,
+        subtitle: String,
+        symbol: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x596171))
+                    .frame(width: 32, height: 32)
+                    .background(Color(hex: 0xE8F4FA), in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Text(subtitle)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x7D8797))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .tint(Color(hex: 0x83CFA4))
+        .padding(.vertical, 12)
     }
 
     private func takePhoto() {
@@ -498,9 +638,30 @@ private struct HeaderIcon: View {
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(active ? tint : .white)
-            .frame(width: 34, height: 34)
-            .background(.black.opacity(0.28), in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 1))
+            .foregroundStyle(active ? tint : Color(hex: 0x3D4352))
+            .frame(width: 36, height: 36)
+            .background(Color.white.opacity(0.78), in: Circle())
+            .overlay(Circle().stroke(.white.opacity(0.94), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 3)
+    }
+}
+
+@MainActor
+private final class CameraLevelMonitor: ObservableObject {
+    @Published private(set) var rollDegrees: Double = 0
+    private let manager = CMMotionManager()
+
+    func start() {
+        guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
+        manager.deviceMotionUpdateInterval = 1.0 / 30.0
+        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+            guard let motion else { return }
+            self?.rollDegrees = motion.attitude.roll * 180 / .pi
+        }
+    }
+
+    func stop() {
+        guard manager.isDeviceMotionActive else { return }
+        manager.stopDeviceMotionUpdates()
     }
 }
