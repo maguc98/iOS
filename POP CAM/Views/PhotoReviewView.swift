@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct PhotoReviewView: View {
     let image: UIImage
@@ -7,6 +8,7 @@ struct PhotoReviewView: View {
 
     @State private var saved = false
     @State private var saveFailed = false
+    @State private var showShareSheet = false
 
     var body: some View {
         ZStack {
@@ -27,7 +29,9 @@ struct PhotoReviewView: View {
                         .tracking(2.2)
                         .foregroundStyle(.white.opacity(0.8))
                     Spacer()
-                    ShareLink(item: Image(uiImage: image)) {
+                    Button {
+                        showShareSheet = true
+                    } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.white)
@@ -81,6 +85,20 @@ struct PhotoReviewView: View {
                 .padding(.bottom, 22)
             }
         }
+        .sheet(isPresented: $showShareSheet) {
+            ActivityShareSheet(items: [image])
+                .presentationDetents([.medium])
+        }
         .preferredColorScheme(.dark)
     }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
