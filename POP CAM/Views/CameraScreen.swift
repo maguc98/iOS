@@ -289,6 +289,7 @@ struct CameraScreen: View {
 
     private var zoomControl: some View {
         HStack(spacing: 9) {
+            zoomButton(0.5)
             zoomButton(1)
             zoomButton(2)
             zoomButton(3)
@@ -303,7 +304,7 @@ struct CameraScreen: View {
             zoom = value
             camera.setZoom(CGFloat(value))
         } label: {
-            Text(value == 1 ? "1×" : "\(Int(value))×")
+            Text(value == 0.5 ? "0.5×" : (value == 1 ? "1×" : "\(Int(value))×"))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(abs(zoom - value) < 0.01 ? Color.black : .white)
                 .frame(width: 38, height: 32)
