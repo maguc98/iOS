@@ -47,20 +47,25 @@ struct CameraScreen: View {
                     .transition(.scale.combined(with: .opacity))
             }
 
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 18)
-                zoomControl
-                Spacer(minLength: 18)
-                FilterTray(selection: $camera.selectedFilter)
-                    .padding(.bottom, 20)
-                shutterControls
-                modeFooter
-                    .padding(.top, 18)
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    header
+                    Spacer(minLength: 18)
+                    zoomControl
+                    Spacer(minLength: 18)
+                    FilterTray(selection: $camera.selectedFilter)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 20)
+                    shutterControls
+                    modeFooter
+                        .padding(.top, 18)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+                // Keep every control inside the physical screen viewport.
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
 
             if !camera.isAuthorized {
                 permissionCard
@@ -148,6 +153,7 @@ struct CameraScreen: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var zoomControl: some View {
