@@ -17,6 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download Real-ESRGAN Core ML model
+        run: |
+          set -euo pipefail
+          MODEL_ARCHIVE="$RUNNER_TEMP/RealESRGAN-x4v3.mlpackage.zip"
+          MODEL_STAGING="$RUNNER_TEMP/realesrgan-model"
+          mkdir -p "$MODEL_STAGING" "POP CAM/Models"
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://huggingface.co/VincentGOURBIN/RealESRGAN-CoreML/resolve/main/RealESRGAN-x4v3.mlpackage.zip" \
+            -o "$MODEL_ARCHIVE"
+          echo "5a59e554794371b95fe61274b8a2040f1b3e274479abf15595dcdad0535afad4  $MODEL_ARCHIVE" | shasum -a 256 -c -
+          unzip -q "$MODEL_ARCHIVE" -d "$MODEL_STAGING"
+          MODEL_PACKAGE="$(find "$MODEL_STAGING" -type d -name '*.mlpackage' -print -quit)"
+          test -n "$MODEL_PACKAGE"
+          ditto "$MODEL_PACKAGE" "POP CAM/Models/RealESRGAN-x4v3.mlpackage"
+          echo "Model package prepared: $(du -sh "POP CAM/Models/RealESRGAN-x4v3.mlpackage" | cut -f1)"
+
       - name: Show Xcode version
         run: xcodebuild -version
 
