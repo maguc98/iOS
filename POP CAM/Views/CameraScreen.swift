@@ -13,49 +13,62 @@ struct CameraScreen: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // Soft macaron canvas fills everything outside the live viewfinder.
+            LinearGradient(
+                colors: [
+                    Color(hex: 0xE8F4FA),
+                    Color(hex: 0xF1ECFA),
+                    Color(hex: 0xFCEBF1),
+                    Color(hex: 0xEAF5E9)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-            // Bound both the initial AVFoundation preview and the processed
-            // SwiftUI frame to the same viewport. Without this, the first
-            // processed frame's pixel dimensions can expand the parent ZStack
-            // and push every camera control off-screen.
+            // Keep the live camera image strictly inside the viewfinder window.
+            // The surrounding area remains the macaron-colored app canvas.
             GeometryReader { previewGeometry in
+                let width = previewGeometry.size.width * 0.86
+                let height = previewGeometry.size.height * 0.60
+                let centerX = previewGeometry.size.width / 2
+                let centerY = previewGeometry.size.height * 0.465
+
                 Group {
                     if let frame = camera.previewImage {
                         Image(decorative: frame, scale: 1)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(
-                                width: previewGeometry.size.width,
-                                height: previewGeometry.size.height
-                            )
-                            .clipped()
                     } else {
                         CameraPreview(session: camera.session)
-                            .frame(
-                                width: previewGeometry.size.width,
-                                height: previewGeometry.size.height
-                            )
                     }
                 }
-                .frame(
-                    width: previewGeometry.size.width,
-                    height: previewGeometry.size.height
-                )
+                .frame(width: width, height: height)
                 .clipped()
+                .position(x: centerX, y: centerY)
             }
             .ignoresSafeArea()
             .overlay {
+                // A subtle tint keeps the camera image visually integrated
+                // without drawing a visible border around the viewfinder.
                 LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.48), location: 0),
-                        .init(color: .clear, location: 0.24),
-                        .init(color: .clear, location: 0.58),
-                        .init(color: .black.opacity(0.74), location: 1)
-                    ],
+                    colors: [.black.opacity(0.10), .clear, .black.opacity(0.12)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                .mask {
+                    GeometryReader { maskGeometry in
+                        RoundedRectangle(cornerRadius: 2)
+                            .frame(
+                                width: maskGeometry.size.width * 0.86,
+                                height: maskGeometry.size.height * 0.60
+                            )
+                            .position(
+                                x: maskGeometry.size.width / 2,
+                                y: maskGeometry.size.height * 0.465
+                            )
+                    }
+                }
                 .ignoresSafeArea()
             }
 
@@ -71,11 +84,11 @@ struct CameraScreen: View {
                 VStack(spacing: 0) {
                     header
                     Spacer(minLength: 18)
-                    zoomControl
-                    Spacer(minLength: 18)
                     FilterTray(selection: $camera.selectedFilter)
                         .frame(maxWidth: .infinity)
-                        .padding(.bottom, 20)
+                        .padding(.bottom, 18)
+                    zoomControl
+                        .padding(.bottom, 22)
                     shutterControls
                     modeFooter
                         .padding(.top, 18)
