@@ -40,7 +40,7 @@ struct FilterTray: View {
                                     }
                                 Text(filter.rawValue)
                                     .font(.system(size: 11, weight: selection == filter ? .bold : .medium))
-                                    .foregroundStyle(selection == filter ? .white : .white.opacity(0.66))
+                                    .foregroundStyle(Color(hex: 0x3D4352).opacity(selection == filter ? 1 : 0.78))
                             }
                             .frame(width: 48)
                             .contentShape(Rectangle())
