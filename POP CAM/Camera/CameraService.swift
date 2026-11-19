@@ -156,6 +156,40 @@ final class CameraService: ObservableObject {
         photoOutput.capturePhoto(with: settings, delegate: processor)
     }
 
+    func focus(at point: CGPoint) {
+        let normalized = CGPoint(
+            x: min(max(point.x, 0), 1),
+            y: min(max(point.y, 0), 1)
+        )
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.activeInput?.device else { return }
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = normalized
+                    if device.isFocusModeSupported(.autoFocus) {
+                        device.focusMode = .autoFocus
+                    } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
+                }
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = normalized
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    } else if device.isExposureModeSupported(.autoExpose) {
+                        device.exposureMode = .autoExpose
+                    }
+                }
+                device.unlockForConfiguration()
+            } catch {
+                DispatchQueue.main.async {
+                    self.errorMessage = "暂时无法对焦，请再试一次。"
+                }
+            }
+        }
+    }
+
     func setZoom(_ value: CGFloat) {
         let clamped = min(max(value, 1), 5)
         zoomFactor = clamped
