@@ -26,7 +26,7 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         let now = CACurrentMediaTime()
-        guard now - lastFrameTime >= (1.0 / 24.0) else { return }
+        guard now - lastFrameTime >= (1.0 / 60.0) else { return }
         lastFrameTime = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
