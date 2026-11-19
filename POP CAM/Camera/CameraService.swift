@@ -15,6 +15,7 @@ final class CameraService: ObservableObject {
     @Published var cameraPosition: AVCaptureDevice.Position = .back
     @Published var zoomFactor: CGFloat = 1
     @Published var exposureBias: Float = 0
+    @Published var isExposureFocusLocked = false
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
     @Published var errorMessage: String?
@@ -187,9 +188,41 @@ final class CameraService: ObservableObject {
                     }
                 }
                 device.unlockForConfiguration()
+                DispatchQueue.main.async { self.isExposureFocusLocked = false }
             } catch {
                 DispatchQueue.main.async {
                     self.errorMessage = "暂时无法对焦，请再试一次。"
+                }
+            }
+        }
+    }
+
+    func setExposureFocusLocked(_ locked: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.activeInput?.device else { return }
+            do {
+                try device.lockForConfiguration()
+                if locked {
+                    if device.isFocusModeSupported(.locked) {
+                        device.focusMode = .locked
+                    }
+                    if device.isExposureModeSupported(.locked) {
+                        device.exposureMode = .locked
+                    }
+                } else {
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                }
+                device.unlockForConfiguration()
+                DispatchQueue.main.async { self.isExposureFocusLocked = locked }
+            } catch {
+                DispatchQueue.main.async {
+                    self.errorMessage = "暂时无法锁定对焦与曝光。"
+                    self.isExposureFocusLocked = false
                 }
             }
         }
