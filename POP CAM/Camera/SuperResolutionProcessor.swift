@@ -130,6 +130,11 @@ enum RealESRGANProcessor {
             throw SuperResolutionError.outputTooLarge
         }
         outputContext.interpolationQuality = .high
+        // CGImage cropping uses a top-left pixel origin, while a raw CGContext
+        // draws with a bottom-left origin. Keep tile coordinates in the same
+        // top-left space as the source image.
+        outputContext.translateBy(x: 0, y: CGFloat(outputHeight))
+        outputContext.scaleBy(x: 1, y: -1)
 
         let columns = Int(ceil(Double(processingImage.width) / Double(inputWidth)))
         let rows = Int(ceil(Double(processingImage.height) / Double(inputHeight)))
@@ -165,13 +170,25 @@ enum RealESRGANProcessor {
                     throw SuperResolutionError.inferenceFailed
                 }
 
+                // Edge tiles are padded to the model's fixed input size.
+                // Crop the valid output area instead of stretching the entire
+                // model tile into a smaller destination rectangle.
+                let validOutputRect = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: actualWidth * scaleX,
+                    height: actualHeight * scaleY
+                )
+                guard let validOutputTile = outputTile.cropping(to: validOutputRect) else {
+                    throw SuperResolutionError.inferenceFailed
+                }
                 let destination = CGRect(
                     x: tileX * scaleX,
                     y: tileY * scaleY,
                     width: actualWidth * scaleX,
                     height: actualHeight * scaleY
                 )
-                outputContext.draw(outputTile, in: destination)
+                outputContext.draw(validOutputTile, in: destination)
 
                 completedTiles += 1
                 progress(Double(completedTiles) / Double(totalTiles))
