@@ -2,10 +2,11 @@ import SwiftUI
 
 struct PhotoReviewView: View {
     let image: UIImage
-    let onSave: () -> Void
+    let onSave: (@escaping (Bool) -> Void) -> Void
     let onClose: () -> Void
 
     @State private var saved = false
+    @State private var saveFailed = false
 
     var body: some View {
         ZStack {
@@ -48,7 +49,18 @@ struct PhotoReviewView: View {
 
                 Spacer(minLength: 4)
 
-                Button(action: onSave) {
+                if saveFailed {
+                    Text("保存失败，请检查照片权限后重试。")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xFF9B9B))
+                }
+
+                Button {
+                    onSave { success in
+                        saved = success
+                        saveFailed = !success
+                    }
+                } label: {
                     HStack(spacing: 10) {
                         Image(systemName: saved ? "checkmark" : "square.and.arrow.down.fill")
                         Text(saved ? "已保存到相册" : "保存照片")
