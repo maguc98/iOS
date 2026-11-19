@@ -1,6 +1,7 @@
 import CoreML
 import CoreGraphics
 import UIKit
+import Foundation
 
 enum SuperResolutionError: LocalizedError {
     case modelMissing
@@ -200,7 +201,7 @@ enum RealESRGANProcessor {
         dataType: MLMultiArrayDataType
     ) throws -> MLMultiArray {
         let array = try MLMultiArray(
-            shape: shape.map(NSNumber.init(value:)),
+            shape: shape.map { NSNumber(value: $0) },
             dataType: dataType
         )
         let strides = array.strides.map(\.intValue)
