@@ -30,7 +30,8 @@ struct CameraScreen: View {
             // The surrounding area remains the macaron-colored app canvas.
             GeometryReader { previewGeometry in
                 let width = previewGeometry.size.width * 0.86
-                let height = previewGeometry.size.height * 0.60
+                let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
+                let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
                 let centerY = previewGeometry.size.height * 0.465
 
@@ -44,7 +45,7 @@ struct CameraScreen: View {
                     }
                 }
                 .frame(width: width, height: height)
-                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .position(x: centerX, y: centerY)
             }
             .ignoresSafeArea()
@@ -58,10 +59,10 @@ struct CameraScreen: View {
                 )
                 .mask {
                     GeometryReader { maskGeometry in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
                             .frame(
                                 width: maskGeometry.size.width * 0.86,
-                                height: maskGeometry.size.height * 0.60
+                                height: min(maskGeometry.size.width * 0.86 * 4 / 3, maskGeometry.size.height * 0.60)
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
