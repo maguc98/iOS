@@ -108,7 +108,7 @@ struct CameraScreen: View {
                             }
                         }
                         .frame(width: width - 20)
-                        .position(x: width / 2, y: height - 48)
+                        .position(x: width / 2, y: activeTool == .superResolution ? height * 0.66 : height - 48)
                         .zIndex(5)
                     }
 
@@ -284,7 +284,7 @@ struct CameraScreen: View {
     private var toolCapsule: some View {
         Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                isToolPanelExpanded = true
+                isToolPanelExpanded.toggle()
             }
         } label: {
             HStack(spacing: 7) {
@@ -293,7 +293,7 @@ struct CameraScreen: View {
                 Text(activeTool == .filters ? "滤镜" : "AI 超分")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                Image(systemName: "chevron.up")
+                Image(systemName: isToolPanelExpanded ? "chevron.down" : "chevron.up")
                     .font(.system(size: 9, weight: .bold))
                     .opacity(0.65)
             }
@@ -306,7 +306,7 @@ struct CameraScreen: View {
             .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
         }
         .buttonStyle(.plain)
-        .highPriorityGesture(
+        .simultaneousGesture(
             DragGesture(minimumDistance: 12)
                 .onEnded { value in
                     guard abs(value.translation.height) > 18 else { return }
