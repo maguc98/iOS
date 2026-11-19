@@ -213,8 +213,8 @@ final class CameraService: ObservableObject {
                 guard canAutofocus else { return }
                 self.monitorFocusSettling(device: device, startedAt: ProcessInfo.processInfo.systemUptime)
             } catch {
+                // Keep focus feedback inline in the viewfinder; do not present an alert.
                 DispatchQueue.main.async {
-                    self.errorMessage = "暂时无法对焦，请再试一次。"
                     self.focusStatus = .unavailable
                 }
             }
