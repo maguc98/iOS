@@ -118,12 +118,12 @@ struct CameraScreen: View {
                     }
 
                     if let focusIndicatorPoint {
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(Color(hex: 0xFFE45E), lineWidth: 2)
-                            .frame(width: 54, height: 54)
-                            .shadow(color: .black.opacity(0.25), radius: 3)
+                        FocusReticle()
+                            .stroke(Color(hex: 0x32D46A), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                            .frame(width: 58, height: 58)
+                            .shadow(color: .black.opacity(0.28), radius: 3)
                             .position(focusIndicatorPoint)
-                            .transition(.scale.combined(with: .opacity))
+                            .transition(.scale(scale: 0.72).combined(with: .opacity))
                             .allowsHitTesting(false)
                     }
                 }
@@ -831,6 +831,32 @@ struct CameraScreen: View {
             withAnimation(.easeOut(duration: 0.2)) { countdown = nil }
             camera.capturePhoto()
         }
+    }
+}
+
+private struct FocusReticle: Shape {
+    func path(in rect: CGRect) -> Path {
+        let length = rect.width * 0.28
+        let inset: CGFloat = 2
+        var path = Path()
+
+        // Four separate corner brackets, like the native camera focus target.
+        path.move(to: CGPoint(x: inset, y: length))
+        path.addLine(to: CGPoint(x: inset, y: inset))
+        path.addLine(to: CGPoint(x: length, y: inset))
+
+        path.move(to: CGPoint(x: rect.maxX - length, y: inset))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: inset))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: length))
+
+        path.move(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - length))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: rect.maxX - length, y: rect.maxY - inset))
+
+        path.move(to: CGPoint(x: length, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: inset, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: inset, y: rect.maxY - length))
+        return path
     }
 }
 
