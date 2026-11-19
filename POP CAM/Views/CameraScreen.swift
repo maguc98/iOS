@@ -108,8 +108,13 @@ struct CameraScreen: View {
                             }
                         }
                         .frame(width: width - 20)
-                        .position(x: width / 2, y: activeTool == .superResolution ? height * 0.66 : height - 48)
-                        .zIndex(5)
+                        .position(
+                            x: width / 2,
+                            y: activeTool == .superResolution ? height * 0.58 : height * 0.72
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .zIndex(20)
+                        .allowsHitTesting(true)
                     }
 
                     if let focusIndicatorPoint {
@@ -148,6 +153,7 @@ struct CameraScreen: View {
                     }
                 }
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
 
             if let countdown {
@@ -282,41 +288,49 @@ struct CameraScreen: View {
     }
 
     private var toolCapsule: some View {
-        Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                isToolPanelExpanded.toggle()
-            }
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: activeTool == .filters ? "camera.filters" : "sparkles")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(activeTool == .filters ? "滤镜" : "AI 超分")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                Image(systemName: isToolPanelExpanded ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 9, weight: .bold))
-                    .opacity(0.65)
-            }
-            .foregroundStyle(Color(hex: 0x3D4352))
-            .padding(.horizontal, 13)
-            .frame(maxWidth: .infinity)
-            .frame(height: 38)
-            .background(Color.white.opacity(0.76), in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+        HStack(spacing: 7) {
+            Image(systemName: activeTool == .filters ? "camera.filters" : "sparkles")
+                .font(.system(size: 13, weight: .semibold))
+            Text(activeTool == .filters ? "滤镜" : "AI 超分")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .lineLimit(1)
+            Image(systemName: isToolPanelExpanded ? "chevron.down" : "chevron.up")
+                .font(.system(size: 9, weight: .bold))
+                .opacity(0.65)
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12)
+        .foregroundStyle(Color(hex: 0x3D4352))
+        .padding(.horizontal, 13)
+        .frame(maxWidth: .infinity)
+        .frame(height: 38)
+        .background(Color.white.opacity(0.76), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+        .contentShape(Capsule())
+        // A single gesture recognizer distinguishes a tap from a vertical swipe.
+        // This avoids Button and DragGesture competing for the same touch sequence.
+        .gesture(
+            DragGesture(minimumDistance: 0)
                 .onEnded { value in
-                    guard abs(value.translation.height) > 18 else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        activeTool = value.translation.height < 0 ? .superResolution : .filters
-                        isToolPanelExpanded = false
+                        if abs(dy) > 24 && abs(dy) > abs(dx) {
+                            activeTool = dy < 0 ? .superResolution : .filters
+                            isToolPanelExpanded = false
+                        } else if abs(dx) < 14 && abs(dy) < 14 {
+                            isToolPanelExpanded.toggle()
+                        }
                     }
                 }
         )
-        .accessibilityHint("向上滑切换到 AI 超分，向下滑切换到滤镜，点击打开设置")
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                isToolPanelExpanded.toggle()
+            }
+        }
+        .accessibilityHint("向上滑切换到 AI 超分，向下滑切换到滤镜，轻点展开或收起")
     }
 
     private var filterPicker: some View {
@@ -341,7 +355,8 @@ struct CameraScreen: View {
             }
             FilterTray(selection: $camera.selectedFilter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 66)
+                .frame(height: 76)
+                .contentShape(Rectangle())
         }
         .padding(8)
         .background {
