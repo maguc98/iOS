@@ -180,10 +180,8 @@ struct CameraScreen: View {
                     header
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
-                        if !isToolPanelExpanded {
-                            toolCapsule
-                                .frame(width: 112)
-                        }
+                        toolCapsule
+                            .frame(width: 112)
                         zoomControl
                             .frame(maxWidth: .infinity)
                     }
