@@ -11,7 +11,10 @@ struct CameraScreen: View {
     @State private var countdown: Int?
     @State private var showReview = false
     @State private var showSettings = false
-    @State private var showFilters = false
+    @State private var activeTool: CameraToolMode = .filters
+    @State private var isToolPanelExpanded = false
+    @AppStorage("popcam.superResolutionEnabled") private var superResolutionEnabled = false
+    @AppStorage("popcam.superResolutionScale") private var superResolutionScale = 2
     @State private var showGrid = false
     @State private var showLevel = false
     @State private var zoom: Double = 1
@@ -96,11 +99,17 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if showFilters {
-                        filterPicker
-                            .frame(width: width - 20)
-                            .position(x: width / 2, y: height - 48)
-                            .zIndex(5)
+                    if isToolPanelExpanded {
+                        Group {
+                            if activeTool == .filters {
+                                filterPicker
+                            } else {
+                                superResolutionPicker
+                            }
+                        }
+                        .frame(width: width - 20)
+                        .position(x: width / 2, y: height - 48)
+                        .zIndex(5)
                     }
 
                     if let focusIndicatorPoint {
@@ -154,8 +163,8 @@ struct CameraScreen: View {
                     header
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
-                        if !showFilters {
-                            filterPicker
+                        if !isToolPanelExpanded {
+                            toolCapsule
                                 .frame(width: 112)
                         }
                         zoomControl
@@ -182,8 +191,10 @@ struct CameraScreen: View {
             if let image = camera.capturedImage {
                 PhotoReviewView(
                     image: image,
-                    onSave: { completion in
-                        camera.saveCapturedPhoto(completion: completion)
+                    superResolutionEnabled: superResolutionEnabled,
+                    superResolutionScale: superResolutionScale,
+                    onSave: { photo, completion in
+                        camera.savePhoto(photo, completion: completion)
                     },
                     onClose: { showReview = false }
                 )
@@ -270,68 +281,170 @@ struct CameraScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var toolCapsule: some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                isToolPanelExpanded = true
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: activeTool == .filters ? "camera.filters" : "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(activeTool == .filters ? "滤镜" : "AI 超分")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 9, weight: .bold))
+                    .opacity(0.65)
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .padding(.horizontal, 13)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(Color.white.opacity(0.76), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 12)
+                .onEnded { value in
+                    guard abs(value.translation.height) > 18 else { return }
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        activeTool = value.translation.height < 0 ? .superResolution : .filters
+                        isToolPanelExpanded = false
+                    }
+                }
+        )
+        .accessibilityHint("向上滑切换到 AI 超分，向下滑切换到滤镜，点击打开设置")
+    }
+
     private var filterPicker: some View {
         VStack(spacing: 8) {
-            if showFilters {
-                HStack {
-                    Text("选择滤镜")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x3D4352))
-                    Spacer()
-                    Button {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                            showFilters = false
-                        }
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x596171))
-                            .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.72), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                FilterTray(selection: $camera.selectedFilter)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 66)
-            } else {
+            HStack {
+                Label("选择滤镜", systemImage: "camera.filters")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                Spacer()
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        showFilters = true
+                        isToolPanelExpanded = false
                     }
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "camera.filters")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("滤镜 · \(camera.selectedFilter.rawValue)")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                        Image(systemName: "chevron.up")
-                            .font(.system(size: 10, weight: .bold))
-                            .opacity(0.7)
-                    }
-                    .foregroundStyle(Color(hex: 0x3D4352))
-                    .padding(.horizontal, 16)
-                    .frame(height: 38)
-                    .background(Color.white.opacity(0.76), in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
-                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x596171))
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.72), in: Circle())
                 }
                 .buttonStyle(.plain)
             }
+            FilterTray(selection: $camera.selectedFilter)
+                .frame(maxWidth: .infinity)
+                .frame(height: 66)
         }
-        .padding(showFilters ? 8 : 4)
+        .padding(8)
         .background {
-            if showFilters {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.white.opacity(0.82))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Color.white.opacity(0.95), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.88))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                }
+                .shadow(color: Color(hex: 0x8E9AAC).opacity(0.14), radius: 12, y: 4)
+        }
+    }
+
+    private var superResolutionPicker: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack {
+                Label("AI 超分设置", systemImage: "sparkles")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        isToolPanelExpanded = false
                     }
-                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.14), radius: 12, y: 4)
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x596171))
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.72), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Toggle(isOn: $superResolutionEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("拍摄后自动增强")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Text("关闭时仍可在照片回看页手动增强")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x7D8797))
+                }
+            }
+            .tint(Color(hex: selectedPalette.accent))
+
+            HStack(spacing: 8) {
+                superResolutionScaleButton(2, subtitle: "更快 · 文件较小")
+                superResolutionScaleButton(4, subtitle: "更精细 · 更占内存")
+            }
+
+            Text("增强在拍摄完成后执行；原图始终保留。")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Color(hex: 0x778091))
+        }
+        .padding(11)
+        .background {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.90))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.white.opacity(0.96), lineWidth: 1)
+                }
+                .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 12, y: 4)
+        }
+    }
+
+    private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
+        Button {
+            superResolutionScale = scale
+        } label: {
+            VStack(spacing: 3) {
+                HStack(spacing: 4) {
+                    Text("\\(scale)×")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                    if superResolutionScale == scale {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                }
+                Text(subtitle)
+                    .font(.system(size: 8, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                superResolutionScale == scale
+                    ? Color(hex: selectedPalette.background[0]).opacity(0.98)
+                    : Color.white.opacity(0.68),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(
+                        superResolutionScale == scale ? Color(hex: selectedPalette.accent) : Color.white,
+                        lineWidth: superResolutionScale == scale ? 1.5 : 1
+                    )
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: showFilters)
+        .buttonStyle(.plain)
     }
 
     private var levelIndicator: some View {
@@ -764,4 +877,10 @@ private struct MacaronPalette: Identifiable {
         .init(id: "grass", name: "青草绿", background: [0xEEF8E8, 0xE3F2D9, 0xF1F7E9], accent: 0x91C879, secondaryAccent: 0xB3CE83),
         .init(id: "sorbet", name: "冰淇淋", background: [0xEAF8F8, 0xF0EAFE, 0xFCEAF3], accent: 0x9BADD9, secondaryAccent: 0xD9A6C9)
     ]
+}
+
+
+private enum CameraToolMode {
+    case filters
+    case superResolution
 }
