@@ -48,7 +48,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.495
+                let centerY = previewGeometry.size.height * 0.475
 
                 ZStack {
                     Group {
@@ -132,7 +132,7 @@ struct CameraScreen: View {
                                 autofocusPicker
                             }
                         }
-                        .frame(width: width - 18, height: 82)
+                        .frame(width: width - 28, height: 82)
                         .padding(5)
                         .background {
                             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -144,7 +144,7 @@ struct CameraScreen: View {
                                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .position(x: width / 2, y: height - 47)
+                        .position(x: width / 2, y: height - 56)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(20)
                     }
@@ -170,7 +170,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.495
+                                y: maskGeometry.size.height * 0.475
                             )
                     }
                 }
@@ -204,7 +204,7 @@ struct CameraScreen: View {
                         .padding(.top, 10)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 82)
+                .padding(.top, 72)
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
