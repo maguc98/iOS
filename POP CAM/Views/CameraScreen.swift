@@ -1164,10 +1164,10 @@ struct CameraScreen: View {
                             .monospacedDigit()
                             .foregroundStyle(Color(hex: 0x687386))
                     }
-                    Slider(value: $zoom, in: 1...5, step: 0.1)
+                    Slider(value: $zoom, in: 0.5...10, step: 0.1)
                         .tint(Color(hex: selectedPalette.secondaryAccent))
                         .onChange(of: zoom) { _, value in
-                            camera.setZoom(CGFloat(value))
+                            camera.setZoom(CGFloat(value), animated: false)
                         }
                 }
                 .padding(16)
