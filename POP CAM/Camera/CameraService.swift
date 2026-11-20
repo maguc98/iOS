@@ -27,10 +27,14 @@ final class CameraService: ObservableObject {
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
     @Published var errorMessage: String?
+    @Published private(set) var isRecording = false
+    @Published private(set) var recordingDuration: TimeInterval = 0
+    @Published private(set) var appliedVideoDescription = "4K · 60 FPS"
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
+    private let movieOutput = AVCaptureMovieFileOutput()
     private let sessionQueue = DispatchQueue(label: "com.maguc98.popcam.session")
     private let videoQueue = DispatchQueue(label: "com.maguc98.popcam.video")
     private lazy var liveProcessor: LivePreviewProcessor = {
@@ -42,6 +46,10 @@ final class CameraService: ObservableObject {
     }()
     private var activeInput: AVCaptureDeviceInput?
     private var photoProcessor: PhotoCaptureProcessor?
+    private var movieDelegate: MovieFileRecordingDelegate?
+    private var audioInput: AVCaptureDeviceInput?
+    private var recordingStartedAt: Date?
+    private var recordingTimer: Timer?
 
     func prepare() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -71,7 +79,7 @@ final class CameraService: ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.session.beginConfiguration()
-            self.session.sessionPreset = .photo
+            self.session.sessionPreset = .inputPriority
 
             guard let device = self.cameraDevice(position: requestedPosition),
                   let input = try? AVCaptureDeviceInput(device: device),
@@ -87,6 +95,9 @@ final class CameraService: ObservableObject {
             if self.session.canAddOutput(self.photoOutput) {
                 self.session.addOutput(self.photoOutput)
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
+            }
+            if self.session.canAddOutput(self.movieOutput) {
+                self.session.addOutput(self.movieOutput)
             }
 
             self.videoOutput.alwaysDiscardsLateVideoFrames = true
@@ -113,7 +124,7 @@ final class CameraService: ObservableObject {
     }
 
     private func applyPortraitOrientation() {
-        for output in [videoOutput, photoOutput] {
+        for output in [videoOutput, photoOutput, movieOutput] {
             guard let connection = output.connection(with: .video) else { continue }
             if connection.isVideoRotationAngleSupported(90) {
                 connection.videoRotationAngle = 90
@@ -146,6 +157,161 @@ final class CameraService: ObservableObject {
             }
             self.session.commitConfiguration()
             self.applyPortraitOrientation()
+        }
+    }
+
+    func configureVideo(resolution: String, frameRate: Int, hdrEnabled: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.activeInput?.device, !self.movieOutput.isRecording else { return }
+            self.applyVideoConfiguration(device: device, resolution: resolution, frameRate: frameRate, hdrEnabled: hdrEnabled)
+        }
+    }
+
+    private func applyVideoConfiguration(device: AVCaptureDevice, resolution: String, frameRate: Int, hdrEnabled: Bool) {
+        let target = resolution == "4K" ? (width: 3840, height: 2160) : (width: 1920, height: 1080)
+        let requestedFPS = Double(frameRate)
+        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, Bool, Int32)? in
+            let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            guard dimensions.width >= target.width, dimensions.height >= target.height else { return nil }
+            let supportsFPS = format.videoSupportedFrameRateRanges.contains {
+                $0.minFrameRate <= requestedFPS && $0.maxFrameRate >= requestedFPS
+            }
+            let supportsHDR = format.isVideoHDRSupported
+            return (format, supportsFPS, dimensions.width)
+        }.sorted {
+            if $0.1 != $1.1 { return $0.1 && !$1.1 }
+            if hdrEnabled && $0.0.isVideoHDRSupported != $1.0.isVideoHDRSupported {
+                return $0.0.isVideoHDRSupported
+            }
+            return $0.2 < $1.2
+        }
+
+        guard let chosen = candidates.first else {
+            DispatchQueue.main.async { self.errorMessage = "当前镜头不支持所选视频规格，请尝试 1080P 或 30 FPS。" }
+            return
+        }
+
+        do {
+            try device.lockForConfiguration()
+            device.activeFormat = chosen.0
+            let actualFPS = chosen.1 ? requestedFPS : min(30, chosen.0.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30)
+            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(actualFPS))
+            device.activeVideoMinFrameDuration = frameDuration
+            device.activeVideoMaxFrameDuration = frameDuration
+
+            let useHDR = hdrEnabled && chosen.0.isVideoHDRSupported
+            if device.isVideoHDREnabled != useHDR {
+                device.isVideoHDREnabled = useHDR
+            }
+            device.unlockForConfiguration()
+
+            if let connection = movieOutput.connection(with: .video),
+               movieOutput.availableVideoCodecTypes.contains(.hevc) {
+                movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
+            }
+
+            let dimensions = CMVideoFormatDescriptionGetDimensions(chosen.0.formatDescription)
+            let actualResolution = dimensions.width >= 3840 && dimensions.height >= 2160 ? "4K" : "1080P"
+            DispatchQueue.main.async {
+                self.appliedVideoDescription = "\(actualResolution) · \(Int(actualFPS)) FPS" + (useHDR ? " · HDR" : "")
+                if actualFPS != requestedFPS || (hdrEnabled && !useHDR) {
+                    self.errorMessage = "设备不支持完整组合，已自动调整为 \(self.appliedVideoDescription)。"
+                } else {
+                    self.errorMessage = nil
+                }
+            }
+        } catch {
+            DispatchQueue.main.async { self.errorMessage = "无法应用视频参数：\\(error.localizedDescription)" }
+        }
+    }
+
+    func startRecording(resolution: String, frameRate: Int, hdrEnabled: Bool) {
+        guard isReady else { return }
+        let beginRecording: (Bool) -> Void = { [weak self] microphoneGranted in
+            guard let self else { return }
+            self.sessionQueue.async {
+                guard !self.movieOutput.isRecording, let device = self.activeInput?.device else { return }
+                self.applyVideoConfiguration(device: device, resolution: resolution, frameRate: frameRate, hdrEnabled: hdrEnabled)
+
+                if microphoneGranted, self.audioInput == nil,
+                   let audioDevice = AVCaptureDevice.default(for: .audio),
+                   let input = try? AVCaptureDeviceInput(device: audioDevice),
+                   self.session.canAddInput(input) {
+                    self.session.beginConfiguration()
+                    self.session.addInput(input)
+                    self.audioInput = input
+                    self.session.commitConfiguration()
+                }
+
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("POPCAM-\\(UUID().uuidString).mov")
+                let delegate = MovieFileRecordingDelegate { [weak self] outputURL, error in
+                    guard let self else { return }
+                    self.finishRecording(at: outputURL, error: error)
+                }
+                self.movieDelegate = delegate
+                self.movieOutput.startRecording(to: url, recordingDelegate: delegate)
+                DispatchQueue.main.async {
+                    self.isRecording = true
+                    self.recordingStartedAt = Date()
+                    self.recordingDuration = 0
+                    self.recordingTimer?.invalidate()
+                    self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                        guard let self, let started = self.recordingStartedAt else { return }
+                        self.recordingDuration = Date().timeIntervalSince(started)
+                    }
+                }
+            }
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            beginRecording(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in beginRecording(granted) }
+        default:
+            DispatchQueue.main.async { self.errorMessage = "麦克风权限未开启，本次录像将没有声音。" }
+            beginRecording(false)
+        }
+    }
+
+    func stopRecording() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.movieOutput.isRecording else { return }
+            self.movieOutput.stopRecording()
+        }
+    }
+
+    private func finishRecording(at url: URL, error: Error?) {
+        DispatchQueue.main.async {
+            self.isRecording = false
+            self.recordingTimer?.invalidate()
+            self.recordingTimer = nil
+            self.recordingStartedAt = nil
+            self.movieDelegate = nil
+        }
+
+        guard error == nil else {
+            try? FileManager.default.removeItem(at: url)
+            DispatchQueue.main.async { self.errorMessage = "录像失败：\\(error!.localizedDescription)" }
+            return
+        }
+
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                try? FileManager.default.removeItem(at: url)
+                DispatchQueue.main.async { self.errorMessage = "需要照片图库添加权限才能保存视频。" }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .video, fileURL: url, options: nil)
+            } completionHandler: { success, saveError in
+                try? FileManager.default.removeItem(at: url)
+                DispatchQueue.main.async {
+                    self.errorMessage = success ? "视频已保存到照片图库。" : "保存视频失败：\\(saveError?.localizedDescription ?? "未知错误")"
+                }
+            }
         }
     }
 
@@ -347,3 +513,15 @@ final class CameraService: ObservableObject {
         }
     }
 }
+private final class MovieFileRecordingDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
+    private let completion: (URL, Error?) -> Void
+
+    init(completion: @escaping (URL, Error?) -> Void) {
+        self.completion = completion
+    }
+
+    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        completion(outputFileURL, error)
+    }
+}
+
