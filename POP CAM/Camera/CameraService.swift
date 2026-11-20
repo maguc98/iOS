@@ -149,13 +149,6 @@ final class CameraService: ObservableObject {
         }
     }
 
-    private func displayZoomMultiplier(for device: AVCaptureDevice) -> CGFloat {
-        if #available(iOS 18.0, *) {
-            return max(device.displayVideoZoomFactorMultiplier, 0.001)
-        }
-        return 1
-    }
-
     private func cameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         if position == .back {
             // Prefer Apple's virtual multi-camera device. It lets AVFoundation
@@ -172,20 +165,20 @@ final class CameraService: ObservableObject {
     }
 
     private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
-        let multiplier = self.displayZoomMultiplier(for: device)
-        let target = min(
-            max(1.0 / multiplier, device.minAvailableVideoZoomFactor),
-            device.maxAvailableVideoZoomFactor
-        )
+        // AVCaptureDevice.videoZoomFactor is already expressed relative to the
+        // active camera's 1x wide lens. Do not divide by
+        // displayVideoZoomFactorMultiplier: on virtual cameras that can select
+        // the ultra-wide 0.5x lens while the UI incorrectly reports 1x.
+        let target = min(max(1.0, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
 
         do {
             try device.lockForConfiguration()
             device.cancelVideoZoomRamp()
             device.videoZoomFactor = target
             device.unlockForConfiguration()
-            return target * multiplier
+            return target
         } catch {
-            return device.videoZoomFactor * multiplier
+            return device.videoZoomFactor
         }
     }
 
@@ -369,20 +362,25 @@ final class CameraService: ObservableObject {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
 
+            // Turn HDR off while the previous format still supports it.
+            // Otherwise switching from HDR to an SDR-only 4K60 format can leave
+            // the device's HDR flag stale and prevent the requested frame mode
+            // from being applied reliably.
+            if !hdrEnabled, device.activeFormat.isVideoHDRSupported, device.isVideoHDREnabled {
+                device.automaticallyAdjustsVideoHDREnabled = false
+                device.isVideoHDREnabled = false
+            }
+
             if device.activeFormat !== chosen.format {
                 device.activeFormat = chosen.format
             }
 
-            // Selecting an activeFormat resets auto frame-rate adjustment on
-            // current iOS versions. If it remains enabled, explicitly turn it
-            // off before setting fixed frame durations.
+            // Disable automatic frame-rate changes before applying a fixed
+            // duration; iOS may re-enable this after activeFormat changes.
             if #available(iOS 18.0, *), device.isAutoVideoFrameRateEnabled {
                 device.isAutoVideoFrameRateEnabled = false
             }
 
-            // Only write the HDR property when the selected format advertises
-            // HDR support. Setting isVideoHDREnabled on a non-HDR format can
-            // raise an Objective-C exception even when the requested value is false.
             if chosen.supportsHDR {
                 device.automaticallyAdjustsVideoHDREnabled = false
                 if device.isVideoHDREnabled != hdrEnabled {
@@ -390,6 +388,7 @@ final class CameraService: ObservableObject {
                 }
             }
 
+            // Fixed min/max durations are both required for a stable 59.94/60 FPS.
             device.activeVideoMinFrameDuration = chosen.frameDuration
             device.activeVideoMaxFrameDuration = chosen.frameDuration
         } catch {
@@ -755,17 +754,14 @@ final class CameraService: ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
 
-            // Virtual cameras expose Apple's optical lens hand-off through one
-            // zoom control. Convert the UI value using Apple's display multiplier
-            // instead of replacing the capture input at the 0.5x / 1x boundary.
-            let multiplier = self.displayZoomMultiplier(for: device)
-            let minimumDisplayZoom = device.minAvailableVideoZoomFactor * multiplier
-            let maximumDisplayZoom = min(
-                CGFloat(10),
-                device.maxAvailableVideoZoomFactor * multiplier
+            // Keep UI zoom values aligned with AVFoundation's actual optical
+            // zoom factor. Applying displayVideoZoomFactorMultiplier here can
+            // map the UI's 1x selection to hardware 0.5x on virtual cameras.
+            let displayZoom = min(
+                max(value, device.minAvailableVideoZoomFactor),
+                min(CGFloat(10), device.maxAvailableVideoZoomFactor)
             )
-            let displayZoom = min(max(value, minimumDisplayZoom), maximumDisplayZoom)
-            let hardwareZoom = displayZoom / multiplier
+            let hardwareZoom = displayZoom
 
             do {
                 try device.lockForConfiguration()
