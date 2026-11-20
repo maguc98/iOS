@@ -188,8 +188,17 @@ struct CameraScreen: View {
                                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .position(x: width / 2, y: height - 56)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .position(x: width / 2, y: height - 68)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.94, anchor: .bottom)
+                                    .combined(with: .offset(y: 12))
+                                    .combined(with: .opacity),
+                                removal: .scale(scale: 0.97, anchor: .bottom)
+                                    .combined(with: .offset(y: 6))
+                                    .combined(with: .opacity)
+                            )
+                        )
                         .zIndex(20)
                     }
 
@@ -935,7 +944,22 @@ struct CameraScreen: View {
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Menu {
-                Button("60 FPS") { selectedFrameRate = "60" }
+                Button("60 FPS") {
+                    // iPhone 12 mini supports Dolby Vision HDR only up to 30 FPS.
+                    // Prefer the requested 60 FPS and switch HDR off rather than
+                    // silently falling back to 30 FPS while leaving HDR enabled.
+                    isSyncingVideoControls = true
+                    selectedFrameRate = "60"
+                    hdrEnabled = false
+                    DispatchQueue.main.async {
+                        isSyncingVideoControls = false
+                        camera.configureVideo(
+                            resolution: selectedVideoResolution,
+                            frameRate: 60,
+                            hdrEnabled: false
+                        )
+                    }
+                }
                 Button("30 FPS") { selectedFrameRate = "30" }
             } label: {
                 HStack(spacing: 4) {
