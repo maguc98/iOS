@@ -997,8 +997,8 @@ struct CameraScreen: View {
                 .foregroundStyle(Color(hex: 0x3D4352))
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 8)
-                .frame(height: 30)
-                .background(Color.white.opacity(0.82), in: Capsule())
+                .frame(height: 34)
+                .background(Color.white.opacity(0.88), in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
@@ -1066,9 +1066,9 @@ struct CameraScreen: View {
                     .background(Color.white.opacity(0.82), in: Circle())
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(Color.white.opacity(0.62), in: Capsule())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.10), radius: 8, y: 2)
     }
@@ -1744,6 +1744,7 @@ private struct StabilizationPreviewHUD: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    .offset(x: horizontalShift)
                     .clipped()
                     .overlay(Color.black.opacity(0.24))
 
@@ -1756,7 +1757,6 @@ private struct StabilizationPreviewHUD: View {
                         width: geometry.size.width * 0.78,
                         height: geometry.size.height * 0.78
                     )
-                    .offset(x: horizontalShift)
                     .animation(.interactiveSpring(response: 0.20, dampingFraction: 0.82), value: rollDegrees)
 
                 VStack {
