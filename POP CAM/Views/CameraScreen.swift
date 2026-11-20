@@ -1,6 +1,8 @@
 import AVFoundation
 import AVKit
 import CoreMotion
+import CoreImage
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -3437,6 +3439,7 @@ private struct AlbumPhotoStudioView: View {
     @State private var contrast = 1.0
     @State private var saturation = 1.0
     @State private var sharpness = 0.0
+    @State private var rotationQuarterTurns = 0
     @State private var cropMode: StudioCropMode = .original
     @State private var preset: StudioPreset = .original
     @State private var aiScale = 2
@@ -3705,18 +3708,18 @@ private struct AlbumPhotoStudioView: View {
                 Button {
                     pushUndo()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        cropMode = cropMode.next
+                        rotationQuarterTurns = (rotationQuarterTurns + 1) % 4
                         showingEnhanced = false
                     }
                 } label: {
-                    Image(systemName: "crop.rotate")
+                    Image(systemName: "rotate.right")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(Color(hex: 0x586A7E))
                         .frame(width: 42, height: 38)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("切换裁剪比例")
+                .accessibilityLabel("向右旋转九十度")
             }
         }
     }
@@ -3895,6 +3898,12 @@ private struct AlbumPhotoStudioView: View {
     private func renderEditedImage() -> UIImage {
         guard var ciImage = CIImage(image: image) else { return image }
 
+        if rotationQuarterTurns > 0 {
+            for _ in 0..<rotationQuarterTurns {
+                ciImage = ciImage.oriented(.right)
+            }
+        }
+
         if cropMode != .original {
             let extent = ciImage.extent
             let targetRatio = cropMode.ratio
@@ -3946,6 +3955,7 @@ private struct AlbumPhotoStudioView: View {
             contrast: contrast,
             saturation: saturation,
             sharpness: sharpness,
+            rotationQuarterTurns: rotationQuarterTurns,
             cropMode: cropMode,
             preset: preset
         )
@@ -3956,6 +3966,7 @@ private struct AlbumPhotoStudioView: View {
         contrast = snapshot.contrast
         saturation = snapshot.saturation
         sharpness = snapshot.sharpness
+        rotationQuarterTurns = snapshot.rotationQuarterTurns
         cropMode = snapshot.cropMode
         preset = snapshot.preset
         enhancedImage = nil
@@ -3984,11 +3995,12 @@ private struct StudioEditSnapshot {
     let contrast: Double
     let saturation: Double
     let sharpness: Double
+    let rotationQuarterTurns: Int
     let cropMode: StudioCropMode
     let preset: StudioPreset
 }
 
-private enum StudioPreset {
+private enum StudioPreset: Equatable {
     case original
     case fresh
     case cream
@@ -4006,7 +4018,7 @@ private enum StudioPreset {
     }
 }
 
-private enum StudioCropMode {
+private enum StudioCropMode: Equatable {
     case original
     case square
     case portrait
