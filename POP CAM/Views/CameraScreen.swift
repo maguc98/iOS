@@ -123,7 +123,8 @@ struct CameraScreen: View {
                             isFocused: camera.focusStatus == .focused
                         )
                         .frame(width: width, height: height)
-                        .position(x: centerX, y: centerY)
+                        // The overlay lives inside the viewfinder's local ZStack.
+                        // Do not apply the outer GeometryReader center a second time.
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                         .allowsHitTesting(false)
                         .zIndex(12)
