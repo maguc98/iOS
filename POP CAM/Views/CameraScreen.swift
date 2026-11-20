@@ -21,7 +21,11 @@ struct CameraScreen: View {
     @AppStorage("popcam.stabilizationHUDEnabled") private var stabilizationHUDEnabled = true
     @AppStorage("popcam.stabilizationHUDX") private var stabilizationHUDX = 0.5
     @AppStorage("popcam.stabilizationHUDY") private var stabilizationHUDY = 0.20
+    @AppStorage("popcam.motionStatusHUDEnabled") private var motionStatusHUDEnabled = true
+    @AppStorage("popcam.motionStatusHUDX") private var motionStatusHUDX = 0.74
+    @AppStorage("popcam.motionStatusHUDY") private var motionStatusHUDY = 0.72
     @State private var stabilizationHUDDragOrigin: CGPoint?
+    @State private var motionStatusHUDDragOrigin: CGPoint?
     @State private var showGrid = false
     @State private var showLevel = false
     @State private var zoom: Double = 1
@@ -41,7 +45,7 @@ struct CameraScreen: View {
     }
 
     private func updateMotionMonitoring() {
-        if showLevel || stabilizationHUDEnabled {
+        if showLevel || stabilizationHUDEnabled || motionStatusHUDEnabled {
             levelMonitor.start()
         } else {
             levelMonitor.stop()
@@ -179,6 +183,37 @@ struct CameraScreen: View {
                                 }
                         )
                         .zIndex(18)
+                    }
+
+                    if motionStatusHUDEnabled {
+                        MotionStatusWindow(
+                            isLevel: abs(levelMonitor.rollDegrees) < 1.5,
+                            rollDegrees: levelMonitor.rollDegrees,
+                            tiltDegrees: levelMonitor.tiltDegrees,
+                            shakeLevel: levelMonitor.shakeLevel,
+                            stabilizationEnabled: videoStabilizationEnabled,
+                            isStabilizationSupported: camera.isVideoStabilizationActive
+                        )
+                        .frame(width: 154, height: 122)
+                        .position(
+                            x: min(max(width * motionStatusHUDX, 84), width - 84),
+                            y: min(max(height * motionStatusHUDY, 68), height - 68)
+                        )
+                        .gesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in
+                                    if motionStatusHUDDragOrigin == nil {
+                                        motionStatusHUDDragOrigin = CGPoint(x: motionStatusHUDX, y: motionStatusHUDY)
+                                    }
+                                    let origin = motionStatusHUDDragOrigin ?? CGPoint(x: motionStatusHUDX, y: motionStatusHUDY)
+                                    motionStatusHUDX = min(max(origin.x + value.translation.width / width, 0.26), 0.74)
+                                    motionStatusHUDY = min(max(origin.y + value.translation.height / height, 0.18), 0.82)
+                                }
+                                .onEnded { _ in
+                                    motionStatusHUDDragOrigin = nil
+                                }
+                        )
+                        .zIndex(19)
                     }
 
                     if showLevel {
@@ -456,6 +491,9 @@ struct CameraScreen: View {
             updateMotionMonitoring()
         }
         .onChange(of: stabilizationHUDEnabled) { _, _ in
+            updateMotionMonitoring()
+        }
+        .onChange(of: motionStatusHUDEnabled) { _, _ in
             updateMotionMonitoring()
         }
         .onDisappear { levelMonitor.stop(); camera.setAutofocusVisualizationEnabled(false) }
@@ -1246,13 +1284,22 @@ struct CameraScreen: View {
                     Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
                     settingToggle(
                         title: "防抖取景监视器",
-                        subtitle: "在取景器内显示原始画面与稳定取景范围，可拖动位置",
+                        subtitle: "在取景器内显示原始画面与估算稳定范围，可拖动位置",
                         symbol: "rectangle.inset.filled",
                         isOn: $stabilizationHUDEnabled
                     )
-                    .onChange(of: stabilizationHUDEnabled) { _, enabled in
-                        if enabled { levelMonitor.start() }
-                        else if !showLevel { levelMonitor.stop() }
+                    .onChange(of: stabilizationHUDEnabled) { _, _ in
+                        updateMotionMonitoring()
+                    }
+                    Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
+                    settingToggle(
+                        title: "运动状态窗口",
+                        subtitle: "显示水平参考线、倾斜角度、晃动幅度和防抖状态，可拖动位置",
+                        symbol: "waveform.path",
+                        isOn: $motionStatusHUDEnabled
+                    )
+                    .onChange(of: motionStatusHUDEnabled) { _, _ in
+                        updateMotionMonitoring()
                     }
                     Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
                     settingToggle(
@@ -1814,6 +1861,8 @@ private struct StabilizationPreviewHUD: View {
 @MainActor
 private final class CameraLevelMonitor: ObservableObject {
     @Published private(set) var rollDegrees: Double = 0
+    @Published private(set) var tiltDegrees: Double = 0
+    @Published private(set) var shakeLevel: Double = 0
     @Published private(set) var stabilizationPitchDegrees: Double = 0
     @Published private(set) var stabilizationYawDegrees: Double = 0
     @Published private(set) var stabilizationRollDegrees: Double = 0
@@ -1836,7 +1885,27 @@ private final class CameraLevelMonitor: ObservableObject {
             guard let self, let motion else { return }
 
             let absoluteRoll = Self.degrees(motion.attitude.roll)
+            let absolutePitch = Self.degrees(motion.attitude.pitch)
             self.rollDegrees += (absoluteRoll - self.rollDegrees) * 0.28
+
+            let combinedTilt = min(90, hypot(absoluteRoll, absolutePitch))
+            self.tiltDegrees += (combinedTilt - self.tiltDegrees) * 0.24
+
+            let acceleration = motion.userAcceleration
+            let rotation = motion.rotationRate
+            let accelerationMagnitude = sqrt(
+                acceleration.x * acceleration.x +
+                acceleration.y * acceleration.y +
+                acceleration.z * acceleration.z
+            )
+            let rotationMagnitude = sqrt(
+                rotation.x * rotation.x +
+                rotation.y * rotation.y +
+                rotation.z * rotation.z
+            )
+            let measuredShake = min(1, max(accelerationMagnitude / 0.65, rotationMagnitude / 3.2))
+            let smoothing: Double = measuredShake > self.shakeLevel ? 0.42 : 0.16
+            self.shakeLevel += (measuredShake - self.shakeLevel) * smoothing
 
             guard let reference = self.referenceAttitude else {
                 self.referenceAttitude = motion.attitude.copy() as? CMAttitude
@@ -1868,6 +1937,8 @@ private final class CameraLevelMonitor: ObservableObject {
         stabilizationPitchDegrees = 0
         stabilizationYawDegrees = 0
         stabilizationRollDegrees = 0
+        tiltDegrees = 0
+        shakeLevel = 0
     }
 
     private static func degrees(_ radians: Double) -> Double {
@@ -1876,6 +1947,135 @@ private final class CameraLevelMonitor: ObservableObject {
 
     private static func wrappedDegrees(_ radians: Double) -> Double {
         (degrees(radians) + 540).truncatingRemainder(dividingBy: 360) - 180
+    }
+}
+
+
+private struct MotionStatusWindow: View {
+    let isLevel: Bool
+    let rollDegrees: Double
+    let tiltDegrees: Double
+    let shakeLevel: Double
+    let stabilizationEnabled: Bool
+    let isStabilizationSupported: Bool
+
+    private var shakeDescription: String {
+        if shakeLevel < 0.12 { return "稳定" }
+        if shakeLevel < 0.42 { return "轻微" }
+        return "明显"
+    }
+
+    private var stabilizationDescription: String {
+        if !stabilizationEnabled { return "已关闭" }
+        return isStabilizationSupported ? "模式已启用" : "当前模式不支持"
+    }
+
+    private var stabilizationTint: Color {
+        if !stabilizationEnabled { return Color(hex: 0x9AA4B1) }
+        return isStabilizationSupported ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Image(systemName: "waveform.path")
+                    .font(.system(size: 9, weight: .bold))
+                Text("运动状态")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .tracking(0.5)
+                Spacer()
+                Circle()
+                    .fill(Color(hex: 0x83DFA6))
+                    .frame(width: 5, height: 5)
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+
+            statusRow("水平参考线", value: isLevel ? "水平" : "未水平", tint: isLevel ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E)) {
+                ZStack {
+                    Capsule().fill(Color(hex: 0x9AA4B1).opacity(0.42)).frame(width: 24, height: 2)
+                    Capsule().fill(isLevel ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E)).frame(width: 18, height: 2)
+                }
+                .rotationEffect(.degrees(-rollDegrees))
+                .frame(width: 26, height: 12)
+            }
+
+            statusRow("倾斜角度", value: String(format: "%.1f°", tiltDegrees), tint: Color(hex: 0x6E9DCE)) {
+                Image(systemName: "angle")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x6E9DCE))
+            }
+
+            VStack(spacing: 3) {
+                HStack(spacing: 5) {
+                    Image(systemName: "move.3d")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x8D83C9))
+                        .frame(width: 14)
+                    Text("晃动指示")
+                        .font(.system(size: 8, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596171))
+                    Spacer(minLength: 2)
+                    Text("\(shakeDescription)  \(Int((shakeLevel * 100).rounded()))%")
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(hex: 0xDCE4EC).opacity(0.72))
+                        Capsule()
+                            .fill(shakeLevel < 0.12 ? Color(hex: 0x83DFA6) : shakeLevel < 0.42 ? Color(hex: 0xFFE45E) : Color(hex: 0xF18B89))
+                            .frame(width: geometry.size.width * min(max(shakeLevel, 0), 1))
+                    }
+                }
+                .frame(height: 3)
+                .padding(.leading, 19)
+            }
+
+            statusRow("防抖状态", value: stabilizationDescription, tint: stabilizationTint) {
+                Image(systemName: stabilizationEnabled && isStabilizationSupported ? "viewfinder" : "viewfinder.circle")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(stabilizationTint)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.52))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.96), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0x667386).opacity(0.18), radius: 10, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("运动状态窗口：\(isLevel ? "水平" : "未水平")，倾斜角度 \(String(format: "%.1f", tiltDegrees)) 度，晃动 \(shakeDescription)，防抖\(stabilizationDescription)")
+    }
+
+    private func statusRow<Accessory: View>(
+        _ title: String,
+        value: String,
+        tint: Color,
+        @ViewBuilder accessory: () -> Accessory
+    ) -> some View {
+        HStack(spacing: 5) {
+            accessory()
+                .frame(width: 26, height: 12)
+            Text(title)
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x596171))
+            Spacer(minLength: 2)
+            Text(value)
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .foregroundStyle(tint)
+        }
     }
 }
 
