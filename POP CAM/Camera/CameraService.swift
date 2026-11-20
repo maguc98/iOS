@@ -30,7 +30,7 @@ final class CameraService: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var isRecording = false
     @Published private(set) var recordingDuration: TimeInterval = 0
-    @Published private(set) var appliedVideoDescription = "4K · 60 FPS"
+    @Published private(set) var appliedVideoDescription = "4K · 30 FPS · HDR"
     @Published private(set) var savedVideoURLs: [URL] = []
     @Published private(set) var savedPhotoURLs: [URL] = []
     @Published private(set) var savedMediaURLs: [URL] = []
@@ -165,20 +165,75 @@ final class CameraService: ObservableObject {
     }
 
     private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
-        // AVCaptureDevice.videoZoomFactor is already expressed relative to the
-        // active camera's 1x wide lens. Do not divide by
-        // displayVideoZoomFactorMultiplier: on virtual cameras that can select
-        // the ultra-wide 0.5x lens while the UI incorrectly reports 1x.
-        let target = min(max(1.0, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+        // Translate the user-facing 1x value into this device's native zoom
+        // coordinate system. Virtual dual-wide cameras can use a 0.5 display
+        // multiplier, where native 2.0 is the actual 1x wide-lens field of view.
+        let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.01)
+        let requestedHardwareZoom = 1.0 / multiplier
+        let target = min(
+            max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
+            device.maxAvailableVideoZoomFactor
+        )
 
         do {
             try device.lockForConfiguration()
             device.cancelVideoZoomRamp()
             device.videoZoomFactor = target
             device.unlockForConfiguration()
-            return target
+            return target * multiplier
         } catch {
-            return device.videoZoomFactor
+            return device.videoZoomFactor * multiplier
+        }
+    }
+
+    /// The iPhone 12 mini can record 4K60 on its physical wide camera.
+    /// The dual-wide virtual camera doesn't expose the same high-frame-rate
+    /// format set, so use the physical wide camera for 4K60 SDR and retain the
+    /// virtual dual-wide camera for modes that benefit from the 0.5x lens.
+    private func videoDevice(
+        resolution: String,
+        frameRate: Int,
+        hdrEnabled: Bool
+    ) -> AVCaptureDevice? {
+        let requiresPhysicalWide = cameraPosition == .back &&
+            resolution == "4K" &&
+            frameRate >= 50 &&
+            !hdrEnabled
+
+        let desiredDevice: AVCaptureDevice?
+        if requiresPhysicalWide {
+            desiredDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        } else {
+            desiredDevice = cameraDevice(position: cameraPosition)
+        }
+
+        guard let desiredDevice else { return activeInput?.device }
+        if activeInput?.device.uniqueID == desiredDevice.uniqueID {
+            return desiredDevice
+        }
+
+        guard let oldInput = activeInput,
+              let newInput = try? AVCaptureDeviceInput(device: desiredDevice) else {
+            return activeInput?.device
+        }
+
+        session.beginConfiguration()
+        session.removeInput(oldInput)
+        if session.canAddInput(newInput) {
+            session.addInput(newInput)
+            activeInput = newInput
+            session.commitConfiguration()
+            applyPortraitOrientation()
+
+            let displayZoom = setDefaultZoom(for: desiredDevice)
+            DispatchQueue.main.async {
+                self.zoomFactor = displayZoom
+            }
+            return desiredDevice
+        } else {
+            session.addInput(oldInput)
+            session.commitConfiguration()
+            return oldInput.device
         }
     }
 
@@ -226,7 +281,12 @@ final class CameraService: ObservableObject {
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            guard let device = self.activeInput?.device, !self.movieOutput.isRecording else {
+            guard !self.movieOutput.isRecording,
+                  let device = self.videoDevice(
+                    resolution: resolution,
+                    frameRate: frameRate,
+                    hdrEnabled: hdrEnabled
+                  ) else {
                 DispatchQueue.main.async { self.isVideoConfigurationInProgress = false }
                 return
             }
@@ -450,7 +510,11 @@ final class CameraService: ObservableObject {
             self.sessionQueue.async {
                 guard !self.movieOutput.isRecording,
                       self.session.isRunning,
-                      let device = self.activeInput?.device else {
+                      let device = self.videoDevice(
+                        resolution: resolution,
+                        frameRate: frameRate,
+                        hdrEnabled: hdrEnabled
+                      ) else {
                     DispatchQueue.main.async {
                         self.isVideoConfigurationInProgress = false
                         self.isRecordingStartPending = false
@@ -486,6 +550,23 @@ final class CameraService: ObservableObject {
                         self.isRecordingStartPending = false
                     }
                     return
+                }
+
+                // 4K60 is a high-data-rate capture mode and requires HEVC on
+                // supported iPhone formats. Select it explicitly instead of
+                // relying on the output's default codec choice.
+                if resolution == "4K", frameRate >= 50 {
+                    let supportedKeys = self.movieOutput.supportedOutputSettingsKeys(for: connection)
+                    guard self.movieOutput.availableVideoCodecTypes.contains(.hevc),
+                          supportedKeys.contains(AVVideoCodecKey) else {
+                        DispatchQueue.main.async {
+                            self.isVideoConfigurationInProgress = false
+                            self.isRecordingStartPending = false
+                            self.errorMessage = "当前录像输出不支持 HEVC，无法录制 4K 60 FPS。"
+                        }
+                        return
+                    }
+                    self.movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
                 }
 
                 let url = FileManager.default.temporaryDirectory
@@ -664,16 +745,18 @@ final class CameraService: ObservableObject {
                 }
 
                 let canAutofocus: Bool
-                if device.isFocusModeSupported(.continuousAutoFocus) {
-                    // Retain continuous tracking after the user selects a focus point.
-                    device.focusMode = .continuousAutoFocus
-                    canAutofocus = true
-                } else if device.isFocusModeSupported(.autoFocus) {
+                if device.isFocusModeSupported(.autoFocus) {
+                    // Explicit one-shot autofocus reliably starts a new focus
+                    // operation even when continuous AF was already selected.
                     device.focusMode = .autoFocus
+                    canAutofocus = true
+                } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
                     canAutofocus = true
                 } else {
                     canAutofocus = false
                 }
+                device.isSubjectAreaChangeMonitoringEnabled = canAutofocus
 
                 if device.isExposureModeSupported(.autoExpose) {
                     device.exposureMode = .autoExpose
@@ -706,6 +789,17 @@ final class CameraService: ObservableObject {
             // Give the autofocus system time to begin moving before treating
             // a stable lens position as a completed focus attempt.
             if elapsed >= 0.35 && !device.isAdjustingFocus {
+                do {
+                    try device.lockForConfiguration()
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
+                    device.isSubjectAreaChangeMonitoringEnabled = true
+                    device.unlockForConfiguration()
+                } catch {
+                    // Keep the completed one-shot focus even if continuous
+                    // tracking cannot be re-enabled on this capture format.
+                }
                 DispatchQueue.main.async {
                     self.focusStatus = .focused
                 }
@@ -754,14 +848,16 @@ final class CameraService: ObservableObject {
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
 
-            // Keep UI zoom values aligned with AVFoundation's actual optical
-            // zoom factor. Applying displayVideoZoomFactorMultiplier here can
-            // map the UI's 1x selection to hardware 0.5x on virtual cameras.
-            let displayZoom = min(
-                max(value, device.minAvailableVideoZoomFactor),
-                min(CGFloat(10), device.maxAvailableVideoZoomFactor)
+            // UI zoom is the native factor multiplied by Apple's presentation
+            // multiplier. Convert in both directions so a virtual camera's
+            // 0.5x ultra-wide base is never mislabeled as 1x.
+            let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.01)
+            let requestedHardwareZoom = value / multiplier
+            let hardwareZoom = min(
+                max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
+                min(CGFloat(10) / multiplier, device.maxAvailableVideoZoomFactor)
             )
-            let hardwareZoom = displayZoom
+            let displayZoom = hardwareZoom * multiplier
 
             do {
                 try device.lockForConfiguration()
