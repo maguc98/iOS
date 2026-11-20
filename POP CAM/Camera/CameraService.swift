@@ -294,7 +294,7 @@ final class CameraService: ObservableObject {
         var applied = false
         for connection in connections where connection.isVideoStabilizationSupported {
             connection.preferredVideoStabilizationMode = enabled ? .standard : .off
-            applied = applied || connection.activeVideoStabilizationMode != .off
+            applied = true
         }
         DispatchQueue.main.async {
             self.isVideoStabilizationActive = enabled && applied
