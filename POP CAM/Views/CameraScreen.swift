@@ -270,8 +270,10 @@ struct CameraScreen: View {
         }
         .onChange(of: camera.focusStatus) { _, status in
             guard status == .focused || status == .unavailable else { return }
+            let currentFocusID = focusZoneID
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-                withAnimation(.easeOut(duration: 0.25)) {
+                guard focusZoneID == currentFocusID else { return }
+                withAnimation(.easeOut(duration: 0.30)) {
                     focusZonesVisible = false
                 }
             }
