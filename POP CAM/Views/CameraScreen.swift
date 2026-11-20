@@ -25,7 +25,6 @@ struct CameraScreen: View {
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "60"
     @State private var hdrEnabled = true
-    @State private var isRecording = false
 
     private var selectedPalette: MacaronPalette {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
@@ -251,6 +250,20 @@ struct CameraScreen: View {
         .onAppear {
             camera.prepare()
             if showLevel { levelMonitor.start() }
+        }
+        .onChange(of: selectedVideoResolution) { _, _ in
+            camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+        }
+        .onChange(of: selectedFrameRate) { _, _ in
+            camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+        }
+        .onChange(of: hdrEnabled) { _, _ in
+            camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+        }
+        .onChange(of: camera.isReady) { _, ready in
+            if ready {
+                camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+            }
         }
         .onChange(of: showLevel) { _, enabled in
             if enabled { levelMonitor.start() } else { levelMonitor.stop() }
@@ -661,18 +674,24 @@ struct CameraScreen: View {
 
                 HStack(spacing: 26) {
                     Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
-                            isRecording.toggle()
+                        if camera.isRecording {
+                            camera.stopRecording()
+                        } else {
+                            camera.startRecording(
+                                resolution: selectedVideoResolution,
+                                frameRate: Int(selectedFrameRate) ?? 30,
+                                hdrEnabled: hdrEnabled
+                            )
                         }
                     } label: {
                         ShutterButtonStyle(
                             outerColors: [Color(hex: 0xFF9AA2), Color(hex: 0xFF6B78)],
                             isVideo: true,
-                            isRecording: isRecording
+                            isRecording: camera.isRecording
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isRecording ? "停止录制" : "开始录制")
+                    .accessibilityLabel(camera.isRecording ? "停止录制" : "开始录制")
 
                     Button(action: takePhoto) {
                         ShutterButtonStyle(
@@ -683,6 +702,7 @@ struct CameraScreen: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("拍照")
+                    .disabled(camera.isRecording)
                 }
                 .frame(maxWidth: .infinity)
                 .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
@@ -709,6 +729,7 @@ struct CameraScreen: View {
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
+            .disabled(camera.isRecording)
 
             Menu {
                 Button("60 FPS") { selectedFrameRate = "60" }
@@ -725,6 +746,7 @@ struct CameraScreen: View {
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
+            .disabled(camera.isRecording)
 
             Button {
                 hdrEnabled.toggle()
@@ -737,6 +759,7 @@ struct CameraScreen: View {
                     .frame(height: 30)
                     .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color.white.opacity(0.72), in: Capsule())
             }
+            .disabled(camera.isRecording)
 
             Spacer(minLength: 0)
             Text("H.265")
@@ -766,13 +789,24 @@ struct CameraScreen: View {
 
     private var modeFooter: some View {
         HStack(spacing: 8) {
-            Circle().fill(Color(hex: 0x83DFA6)).frame(width: 6, height: 6)
-            Text("PHOTO MODE")
-                .foregroundStyle(Color(hex: 0x3D4352))
-            Text("·")
-                .foregroundStyle(Color(hex: 0x87909E))
-            Text("FILTERS ON")
-                .foregroundStyle(Color(hex: 0xD77A36))
+            Circle()
+                .fill(camera.isRecording ? Color(hex: 0xFF5967) : Color(hex: 0x83DFA6))
+                .frame(width: 6, height: 6)
+            if camera.isRecording {
+                Text(String(format: "REC %02d:%02d", Int(camera.recordingDuration) / 60, Int(camera.recordingDuration) % 60))
+                    .foregroundStyle(Color(hex: 0xFF5967))
+                Text("·")
+                    .foregroundStyle(Color(hex: 0x87909E))
+                Text(camera.appliedVideoDescription)
+                    .foregroundStyle(Color(hex: 0x3D4352))
+            } else {
+                Text("PHOTO MODE")
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                Text("·")
+                    .foregroundStyle(Color(hex: 0x87909E))
+                Text("FILTERS ON")
+                    .foregroundStyle(Color(hex: 0xD77A36))
+            }
         }
         .font(.system(size: 10, weight: .heavy, design: .rounded))
         .tracking(1.5)
