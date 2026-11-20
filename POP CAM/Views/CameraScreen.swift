@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import CoreMotion
 import SwiftUI
 import UIKit
@@ -10,6 +11,8 @@ struct CameraScreen: View {
     @State private var timerSeconds = 0
     @State private var countdown: Int?
     @State private var showReview = false
+    @State private var showAlbum = false
+    @State private var selectedVideo: LocalAlbumVideo?
     @State private var showSettings = false
     @State private var activeTool: CameraToolMode = .filters
     @State private var isToolPanelExpanded = false
@@ -61,6 +64,25 @@ struct CameraScreen: View {
                     }
                     .frame(width: width, height: height)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(camera.isRecording ? Color(hex: 0xFF4058) : .clear, lineWidth: camera.isRecording ? 4 : 0)
+                            .shadow(color: camera.isRecording ? Color(hex: 0xFF4058).opacity(0.55) : .clear, radius: 9)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if camera.isRecording {
+                            HStack(spacing: 7) {
+                                Circle().fill(Color(hex: 0xFF4058)).frame(width: 7, height: 7)
+                                Text(String(format: "REC  %02d:%02d", Int(camera.recordingDuration) / 60, Int(camera.recordingDuration) % 60))
+                                    .font(.system(size: 12, weight: .heavy, design: .rounded).monospacedDigit())
+                                    .foregroundStyle(Color(hex: 0xFF4058))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(12)
+                        }
+                    }
                     .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .onTapGesture(coordinateSpace: .local) { location in
                         let normalizedPoint = CGPoint(
@@ -235,6 +257,26 @@ struct CameraScreen: View {
                 .presentationDetents([.medium, .large])
                 .presentationCornerRadius(28)
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAlbum) {
+            LocalVideoAlbumSheet(videos: camera.savedVideoURLs) { video in
+                selectedVideo = LocalAlbumVideo(url: video)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationCornerRadius(28)
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $selectedVideo) { item in
+            NavigationStack {
+                VideoPlayer(player: AVPlayer(url: item.url))
+                    .background(.black)
+                    .ignoresSafeArea(edges: .bottom)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("完成") { selectedVideo = nil }
+                        }
+                    }
+            }
         }
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
@@ -626,7 +668,8 @@ struct CameraScreen: View {
             ZStack {
                 HStack {
                     Button {
-                        showReview = camera.capturedImage != nil
+                        camera.reloadSavedVideos()
+                        showAlbum = true
                     } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10)
@@ -643,12 +686,17 @@ struct CameraScreen: View {
                                     .font(.system(size: 19, weight: .medium))
                                     .foregroundStyle(Color(hex: 0x596171))
                             }
+                            if !camera.savedVideoURLs.isEmpty {
+                                Circle()
+                                    .fill(Color(hex: 0xFF5967))
+                                    .frame(width: 8, height: 8)
+                                    .overlay(Circle().stroke(.white, lineWidth: 1))
+                                    .offset(x: 19, y: -19)
+                            }
                         }
                         .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
-                    .disabled(camera.capturedImage == nil)
-                    .opacity(camera.capturedImage == nil ? 0.75 : 1)
                     Spacer()
                     Button(action: triggerAutofocus) {
                         ZStack(alignment: .topTrailing) {
@@ -1049,6 +1097,72 @@ struct CameraScreen: View {
             withAnimation(.easeOut(duration: 0.2)) { countdown = nil }
             camera.capturePhoto()
         }
+    }
+}
+
+private struct LocalAlbumVideo: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+private struct LocalVideoAlbumSheet: View {
+    let videos: [URL]
+    let onPlay: (URL) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if videos.isEmpty {
+                    ContentUnavailableView(
+                        "还没有视频",
+                        systemImage: "video",
+                        description: Text("录制完成的视频会保存在 POP CAM 的专属相册中。")
+                    )
+                } else {
+                    List(videos, id: \.absoluteString) { url in
+                        Button {
+                            onPlay(url)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "video.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0xFF6878))
+                                    .frame(width: 48, height: 48)
+                                    .background(Color(hex: 0xFFF0F2), in: RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(url.deletingPathExtension().lastPathComponent)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .lineLimit(1)
+                                        .foregroundStyle(Color(hex: 0x3D4352))
+                                    Text(url.creationDateLabel)
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0x87909E))
+                                }
+                                Spacer()
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(Color(hex: 0xFF6878))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.white.opacity(0.72))
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(
+                LinearGradient(colors: [Color(hex: 0xE9F8EF), Color(hex: 0xDDF3E7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .navigationTitle("POP CAM 相册")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private extension URL {
+    var creationDateLabel: String {
+        let date = (try? resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .now
+        return date.formatted(date: .numeric, time: .shortened)
     }
 }
 
