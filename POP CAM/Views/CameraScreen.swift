@@ -96,7 +96,7 @@ struct CameraScreen: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(Color(hex: 0xFCEBF1), in: Capsule())
+                            .background(Color(hex: selectedPalette.background[1]), in: Capsule())
                             .padding(12)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.92, anchor: .topLeading)),
@@ -1617,7 +1617,7 @@ private struct LocalMediaAlbumSheet: View {
         .padding(.horizontal, 18)
         .padding(.top, 12)
         .padding(.bottom, 12)
-        .background(Color(hex: 0xF1ECFA))
+        .background(Color(hex: 0xF7F0FA))
     }
 
     private var albumBottomBar: some View {
@@ -1678,7 +1678,7 @@ private struct LocalMediaAlbumSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 9)
         .padding(.bottom, 6)
-        .background(Color(hex: 0xF1ECFA).ignoresSafeArea(edges: .bottom))
+        .background(Color(hex: 0xF7F0FA).ignoresSafeArea(edges: .bottom))
     }
 
     private var albumDockBackground: some View {
@@ -2337,7 +2337,7 @@ private struct HeaderIcon: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(active ? tint : Color(hex: 0x3D4352))
             .frame(width: 36, height: 36)
-            .background(Color(hex: 0xF1ECFA), in: Circle())
+            .background(Color.white, in: Circle())
     }
 }
 
