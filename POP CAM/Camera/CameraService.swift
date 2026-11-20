@@ -252,7 +252,8 @@ final class CameraService: ObservableObject {
         device: AVCaptureDevice,
         resolution: String,
         frameRate: Int,
-        hdrEnabled: Bool
+        hdrEnabled: Bool,
+        reportsErrors: Bool = true
     ) -> Bool {
         let requestedResolution = resolution == "4K" ? "4K" : "1080P"
         let requestedDimensions = requestedResolution == "4K"
@@ -282,8 +283,11 @@ final class CameraService: ObservableObject {
             let ranges = format.videoSupportedFrameRateRanges
             guard !ranges.isEmpty else { return nil }
 
+            // Many cameras advertise nominal 60 FPS as 59.94 FPS. Accept
+            // a half-FPS tolerance so this format is not mistaken for 30 FPS.
             let matchingRange = ranges.first {
-                requestedFPS >= $0.minFrameRate && requestedFPS <= $0.maxFrameRate
+                let clamped = min(max(requestedFPS, $0.minFrameRate), $0.maxFrameRate)
+                return abs(clamped - requestedFPS) < 0.5
             }
             let selectedRange = matchingRange ?? ranges.min {
                 let lhs = abs(min(max(requestedFPS, $0.minFrameRate), $0.maxFrameRate) - requestedFPS)
@@ -318,19 +322,28 @@ final class CameraService: ObservableObject {
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
             }
+            // Rank the closest achievable frame rate before HDR capability.
+            // An HDR-capable format can still capture SDR when HDR is disabled.
+            let lhsFPSDistance = abs(lhs.actualFPS - requestedFPS)
+            let rhsFPSDistance = abs(rhs.actualFPS - requestedFPS)
+            if abs(lhsFPSDistance - rhsFPSDistance) > 0.01 {
+                return lhsFPSDistance < rhsFPSDistance
+            }
             if lhs.supportsHDR != rhs.supportsHDR {
                 return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
             }
             let lhsArea = Int64(lhs.dimensions.width) * Int64(lhs.dimensions.height)
             let rhsArea = Int64(rhs.dimensions.width) * Int64(rhs.dimensions.height)
             if lhsArea != rhsArea { return lhsArea < rhsArea }
-            return abs(lhs.actualFPS - requestedFPS) < abs(rhs.actualFPS - requestedFPS)
+            return lhs.actualFPS > rhs.actualFPS
         }
 
         guard let chosen = candidates.first else {
             DispatchQueue.main.async {
                 self.isVideoConfigurationInProgress = false
-                self.errorMessage = "当前镜头没有可用的 \(requestedResolution) 视频格式，请尝试 1080P 或 30 FPS。"
+                if reportsErrors {
+                    self.errorMessage = "当前镜头没有可用的 \(requestedResolution) 视频格式，请尝试 1080P 或 30 FPS。"
+                }
             }
             return false
         }
@@ -343,7 +356,9 @@ final class CameraService: ObservableObject {
         guard durationIsSupported else {
             DispatchQueue.main.async {
                 self.isVideoConfigurationInProgress = false
-                self.errorMessage = "当前视频格式不接受所选帧率，请切换到 30 FPS 或 1080P。"
+                if reportsErrors {
+                    self.errorMessage = "当前视频格式不接受所选帧率，请切换到 30 FPS 或 1080P。"
+                }
             }
             return false
         }
@@ -385,7 +400,9 @@ final class CameraService: ObservableObject {
         if let configurationError {
             DispatchQueue.main.async {
                 self.isVideoConfigurationInProgress = false
-                self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
+                if reportsErrors {
+                    self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
+                }
             }
             return false
         }
@@ -394,7 +411,7 @@ final class CameraService: ObservableObject {
             ? "4K"
             : "1080P"
         let actualFrameRate = Int((1.0 / CMTimeGetSeconds(chosen.frameDuration)).rounded())
-        let actualHDR = chosen.supportsHDR && device.isVideoHDREnabled
+        let actualHDR = hdrEnabled && chosen.supportsHDR && device.isVideoHDREnabled
         let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
@@ -410,9 +427,9 @@ final class CameraService: ObservableObject {
                 actualFrameRate != Int(requestedFPS) ||
                 actualHDR != hdrEnabled
 
-            if needsFallback {
+            if needsFallback && reportsErrors {
                 self.errorMessage = "设备不支持所选组合，已自动调整为 \(description)。"
-            } else {
+            } else if reportsErrors {
                 self.errorMessage = nil
             }
         }
@@ -425,10 +442,7 @@ final class CameraService: ObservableObject {
 
     func startRecording(resolution: String, frameRate: Int, hdrEnabled: Bool) {
         guard isReady, !isRecording, !isRecordingStartPending else { return }
-        guard !isVideoConfigurationInProgress else {
-            errorMessage = "相机正在切换视频参数，请稍后再开始录像。"
-            return
-        }
+        guard !isVideoConfigurationInProgress else { return }
         isRecordingStartPending = true
         isVideoConfigurationInProgress = true
 
@@ -441,7 +455,6 @@ final class CameraService: ObservableObject {
                     DispatchQueue.main.async {
                         self.isVideoConfigurationInProgress = false
                         self.isRecordingStartPending = false
-                        self.errorMessage = "相机尚未准备好，请稍后再开始录像。"
                     }
                     return
                 }
@@ -450,7 +463,8 @@ final class CameraService: ObservableObject {
                     device: device,
                     resolution: resolution,
                     frameRate: frameRate,
-                    hdrEnabled: hdrEnabled
+                    hdrEnabled: hdrEnabled,
+                    reportsErrors: false
                 ) else {
                     DispatchQueue.main.async { self.isRecordingStartPending = false }
                     return
@@ -471,7 +485,6 @@ final class CameraService: ObservableObject {
                       connection.isEnabled else {
                     DispatchQueue.main.async {
                         self.isRecordingStartPending = false
-                        self.errorMessage = "录像通道尚未准备好，请重新尝试。"
                     }
                     return
                 }
@@ -507,9 +520,6 @@ final class CameraService: ObservableObject {
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .audio) { granted in beginRecording(granted) }
         default:
-            DispatchQueue.main.async {
-                self.errorMessage = "麦克风权限未开启，本次录像将没有声音。"
-            }
             beginRecording(false)
         }
     }
@@ -533,7 +543,6 @@ final class CameraService: ObservableObject {
 
         guard error == nil else {
             try? FileManager.default.removeItem(at: url)
-            DispatchQueue.main.async { self.errorMessage = "录像失败：\(error?.localizedDescription ?? "未知错误")" }
             return
         }
 
@@ -544,14 +553,8 @@ final class CameraService: ObservableObject {
             let destinationURL = destinationFolder.appendingPathComponent(filename)
             try FileManager.default.moveItem(at: url, to: destinationURL)
             reloadSavedMedia()
-            DispatchQueue.main.async {
-                self.errorMessage = "视频已保存到 POP CAM 相册。"
-            }
         } catch {
             try? FileManager.default.removeItem(at: url)
-            DispatchQueue.main.async {
-                self.errorMessage = "保存到 POP CAM 相册失败：\(error.localizedDescription)"
-            }
         }
     }
 
