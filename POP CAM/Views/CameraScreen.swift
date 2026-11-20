@@ -39,6 +39,8 @@ struct CameraScreen: View {
     @State private var selectedFrameRate = "30"
     @State private var hdrEnabled = true
     @State private var isSyncingVideoControls = false
+    @State private var captureBarMode: CaptureBarMode = .video
+    @State private var isCaptureBarCollapsed = false
 
     private var selectedPalette: MacaronPalette {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
@@ -317,9 +319,15 @@ struct CameraScreen: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     header
-                    captureFormatBar
-                        .padding(.top, 14)
-                        .padding(.horizontal, 8)
+                    if !isCaptureBarCollapsed {
+                        captureFormatBar
+                            .padding(.top, 14)
+                            .padding(.horizontal, 8)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                    }
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -337,6 +345,7 @@ struct CameraScreen: View {
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
+                .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isCaptureBarCollapsed)
             }
             .ignoresSafeArea()
 
@@ -496,6 +505,16 @@ struct CameraScreen: View {
             Spacer()
 
             HStack(spacing: 7) {
+                Button {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                        isCaptureBarCollapsed.toggle()
+                    }
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                } label: {
+                    HeaderIcon(symbol: isCaptureBarCollapsed ? "chevron.down" : "chevron.up")
+                }
+                .accessibilityLabel(isCaptureBarCollapsed ? "展开拍摄控制栏" : "收起拍摄控制栏")
+
                 Menu {
                     Button("关闭", systemImage: "timer") { timerSeconds = 0 }
                     Button("3 秒", systemImage: "3.circle") { timerSeconds = 3 }
@@ -901,7 +920,7 @@ struct CameraScreen: View {
                     } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(hex: 0xF1ECFA))
+                                .fill(Color.white)
                                 .frame(width: 48, height: 48)
                             if let image = camera.capturedImage {
                                 Image(uiImage: image)
@@ -988,6 +1007,50 @@ struct CameraScreen: View {
     }
 
     private var captureFormatBar: some View {
+        Group {
+            switch captureBarMode {
+            case .video:
+                videoFormatControls
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            case .menu:
+                captureToolsMenu
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .zoom:
+                zoomAdjustmentControl
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .exposure:
+                exposureAdjustmentControl
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .focus:
+                focusAdjustmentControl
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .grid:
+                gridAdjustmentControl
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .level:
+                levelAdjustmentControl
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .clipped()
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(Color.white, in: Capsule())
+        .contentShape(Capsule())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard abs(value.translation.width) > 38,
+                          abs(value.translation.width) > abs(value.translation.height) * 1.15 else { return }
+                    handleCaptureBarSwipe(value.translation.width)
+                }
+        )
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: captureBarMode)
+    }
+
+    private var videoFormatControls: some View {
         HStack(spacing: 4) {
             Menu {
                 Button("4K") { selectedVideoResolution = "4K" }
@@ -1002,15 +1065,12 @@ struct CameraScreen: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 8)
                 .frame(height: 34)
-                .background(Color.white, in: Capsule())
+                .background(Color(hex: 0xF4F8FC), in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Menu {
                 Button("60 FPS") {
-                    // iPhone 12 mini supports Dolby Vision HDR only up to 30 FPS.
-                    // Prefer the requested 60 FPS and switch HDR off rather than
-                    // silently falling back to 30 FPS while leaving HDR enabled.
                     isSyncingVideoControls = true
                     selectedFrameRate = "60"
                     hdrEnabled = false
@@ -1033,8 +1093,8 @@ struct CameraScreen: View {
                 .foregroundStyle(Color(hex: 0x3D4352))
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 8)
-                .frame(height: 30)
-                .background(Color.white, in: Capsule())
+                .frame(height: 34)
+                .background(Color(hex: 0xF4F8FC), in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
@@ -1046,19 +1106,22 @@ struct CameraScreen: View {
                     .foregroundStyle(Color(hex: 0x3D4352))
                     .padding(.horizontal, 10)
                     .fixedSize(horizontal: true, vertical: false)
-                    .frame(height: 30)
-                    .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color.white, in: Capsule())
+                    .frame(height: 34)
+                    .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color(hex: 0xF4F8FC), in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Spacer(minLength: 0)
+
             Text("H.265")
                 .font(.system(size: 8, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x778091))
+                .fixedSize()
             Rectangle().fill(Color(hex: 0xC9D4DE)).frame(width: 1, height: 18)
             Text("10-bit")
                 .font(.system(size: 8, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x778091))
+                .fixedSize()
             Menu {
                 Button("H.265") {}
                 Button("10-bit HDR") {}
@@ -1067,12 +1130,285 @@ struct CameraScreen: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color(hex: 0x596171))
                     .frame(width: 28, height: 28)
-                    .background(Color.white, in: Circle())
+                    .background(Color(hex: 0xF4F8FC), in: Circle())
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Color(hex: 0xFCEBF1), in: Capsule())
+    }
+
+    private var captureToolsMenu: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                captureToolChip("焦距", symbol: "viewfinder", tint: 0xDCEEFF) {
+                    setCaptureBarMode(.zoom)
+                }
+                captureToolChip("曝光", symbol: "sun.max.fill", tint: 0xFFF0B8) {
+                    setCaptureBarMode(.exposure)
+                }
+                captureToolChip("对焦", symbol: "scope", tint: 0xF9E1EB) {
+                    setCaptureBarMode(.focus)
+                }
+                captureToolChip("网格", symbol: "grid", tint: 0xEAE3FA) {
+                    setCaptureBarMode(.grid)
+                }
+                captureToolChip("水平仪", symbol: "level", tint: 0xDDF2E5) {
+                    setCaptureBarMode(.level)
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+    }
+
+    private func captureToolChip(
+        _ title: String,
+        symbol: String,
+        tint: UInt32,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .bold))
+                Text(title)
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .fixedSize()
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .padding(.horizontal, 11)
+            .frame(height: 31)
+            .background(Color(hex: tint), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func captureBarBackButton() -> some View {
+        Button {
+            setCaptureBarMode(.menu)
+        } label: {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 11, weight: .black))
+                .foregroundStyle(Color(hex: 0x52647A))
+                .frame(width: 30, height: 30)
+                .background(Color(hex: 0xF0F5FA), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("返回拍摄工具")
+    }
+
+    private var zoomAdjustmentControl: some View {
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 350
+            HStack(spacing: 7) {
+                captureBarBackButton()
+                if !compact {
+                    Text("焦距")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596779))
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+                Text(String(format: "%.1f×", zoom))
+                    .font(.system(size: 11, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                    .frame(width: 45)
+                    .contentTransition(.numericText())
+                Slider(
+                    value: Binding(
+                        get: { zoom },
+                        set: { value in applyZoom(CGFloat(value), animated: false) }
+                    ),
+                    in: 0.5...10,
+                    step: 0.1
+                )
+                .tint(Color(hex: 0xFFE45E))
+                .frame(minWidth: 76)
+                Button {
+                    applyZoom(1, animated: true)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x64768A))
+                        .frame(width: 26, height: 26)
+                        .background(Color(hex: 0xF0F5FA), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("焦距重置为 1 倍")
+            }
+            .frame(height: 36)
+            .animation(.easeInOut(duration: 0.20), value: compact)
+        }
+        .frame(height: 36)
+    }
+
+    private var exposureAdjustmentControl: some View {
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 350
+            HStack(spacing: 7) {
+                captureBarBackButton()
+                if !compact {
+                    Text("曝光")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596779))
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+                Text(String(format: "%+.1f EV", exposure))
+                    .font(.system(size: 10, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                    .frame(width: 54)
+                    .contentTransition(.numericText())
+                Slider(value: $exposure, in: -2...2, step: 0.1)
+                    .tint(Color(hex: 0xFFE45E))
+                    .frame(minWidth: 76)
+                    .onChange(of: exposure) { _, value in
+                        camera.setExposure(Float(value))
+                    }
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        exposure = 0
+                    }
+                    camera.setExposure(0)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x64768A))
+                        .frame(width: 26, height: 26)
+                        .background(Color(hex: 0xF0F5FA), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("曝光重置")
+            }
+            .frame(height: 36)
+            .animation(.easeInOut(duration: 0.20), value: compact)
+        }
+        .frame(height: 36)
+    }
+
+    private var focusAdjustmentControl: some View {
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 350
+            HStack(spacing: 7) {
+                captureBarBackButton()
+                if !compact {
+                    Text("对焦")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596779))
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+                Button {
+                    camera.setExposureFocusLocked(false)
+                    camera.setAutofocusVisualizationEnabled(false)
+                } label: {
+                    Text("自动")
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundStyle(camera.isExposureFocusLocked ? Color(hex: 0x66778A) : Color(hex: 0x3D4352))
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                        .background(camera.isExposureFocusLocked ? Color(hex: 0xF0F5FA) : Color(hex: 0xDDF2E5), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 2)
+                Button {
+                    camera.setExposureFocusLocked(!camera.isExposureFocusLocked)
+                    camera.setAutofocusVisualizationEnabled(false)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: camera.isExposureFocusLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 10, weight: .bold))
+                        Text(camera.isExposureFocusLocked ? "已锁定" : "锁定")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    }
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                    .padding(.horizontal, 11)
+                    .frame(height: 30)
+                    .background(camera.isExposureFocusLocked ? Color(hex: 0xFFF0B8) : Color(hex: 0xF0F5FA), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 36)
+            .animation(.easeInOut(duration: 0.20), value: compact)
+        }
+        .frame(height: 36)
+    }
+
+    private var gridAdjustmentControl: some View {
+        HStack(spacing: 8) {
+            captureBarBackButton()
+            Text("网格线")
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x596779))
+            Spacer(minLength: 3)
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    showGrid.toggle()
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: showGrid ? "checkmark" : "grid")
+                    Text(showGrid ? "已开启" : "开启网格")
+                }
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .background(showGrid ? Color(hex: 0xDCEEFF) : Color(hex: 0xF0F5FA), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 1)
+    }
+
+    private var levelAdjustmentControl: some View {
+        HStack(spacing: 8) {
+            captureBarBackButton()
+            Text("水平仪")
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x596779))
+            Spacer(minLength: 3)
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    showLevel.toggle()
+                }
+                updateMotionMonitoring()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: showLevel ? "checkmark" : "level")
+                    Text(showLevel ? "已开启" : "开启水平仪")
+                }
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .background(showLevel ? Color(hex: 0xDDF2E5) : Color(hex: 0xF0F5FA), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 1)
+    }
+
+    private func setCaptureBarMode(_ mode: CaptureBarMode) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            captureBarMode = mode
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    private func handleCaptureBarSwipe(_ horizontalTranslation: CGFloat) {
+        if captureBarMode == .video, horizontalTranslation < 0 {
+            setCaptureBarMode(.menu)
+            return
+        }
+        if captureBarMode == .menu, horizontalTranslation > 0 {
+            setCaptureBarMode(.video)
+            return
+        }
+
+        if captureBarMode != .video && captureBarMode != .menu {
+            if horizontalTranslation > 0 {
+                setCaptureBarMode(.menu)
+            } else {
+                let order: [CaptureBarMode] = [.zoom, .exposure, .focus, .grid, .level]
+                guard let index = order.firstIndex(of: captureBarMode) else { return }
+                setCaptureBarMode(order[(index + 1) % order.count])
+            }
+        }
     }
 
     private var modeFooter: some View {
@@ -3454,4 +3790,14 @@ private enum CameraToolMode {
     case filters
     case superResolution
     case autofocus
+}
+
+private enum CaptureBarMode: Equatable {
+    case video
+    case menu
+    case zoom
+    case exposure
+    case focus
+    case grid
+    case level
 }
