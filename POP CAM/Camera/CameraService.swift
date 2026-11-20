@@ -24,6 +24,7 @@ final class CameraService: ObservableObject {
     @Published var exposureBias: Float = 0
     @Published var isExposureFocusLocked = false
     @Published var focusStatus: CameraFocusStatus = .idle
+    @Published private(set) var autofocusPoints: [CGPoint] = []
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
     @Published var errorMessage: String?
@@ -42,6 +43,9 @@ final class CameraService: ObservableObject {
         let processor = LivePreviewProcessor()
         processor.onFrame = { [weak self] frame in
             DispatchQueue.main.async { self?.previewImage = frame }
+        }
+        processor.onAutofocusPoints = { [weak self] points in
+            DispatchQueue.main.async { self?.autofocusPoints = points }
         }
         return processor
     }()
@@ -365,6 +369,13 @@ final class CameraService: ObservableObject {
         }
         photoProcessor = processor
         photoOutput.capturePhoto(with: settings, delegate: processor)
+    }
+
+    func setAutofocusVisualizationEnabled(_ enabled: Bool) {
+        liveProcessor.isAutofocusVisualizationEnabled = enabled
+        if !enabled {
+            autofocusPoints = []
+        }
     }
 
     func focus(at point: CGPoint) {

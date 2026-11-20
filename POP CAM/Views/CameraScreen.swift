@@ -22,9 +22,6 @@ struct CameraScreen: View {
     @State private var showLevel = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
-    @State private var focusZonesVisible = false
-    @State private var focusZonePoint = CGPoint(x: 0.5, y: 0.5)
-    @State private var focusZoneID = 0
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "60"
     @State private var hdrEnabled = true
@@ -89,9 +86,6 @@ struct CameraScreen: View {
                             x: min(max(location.x / width, 0), 1),
                             y: min(max(location.y / height, 0), 1)
                         )
-                        focusZonePoint = normalizedPoint
-                        focusZoneID += 1
-                        focusZonesVisible = true
                         camera.focus(at: normalizedPoint)
                     }
 
@@ -117,15 +111,12 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if focusZonesVisible {
-                        FocusZoneGrid(
-                            point: focusZonePoint,
-                            isFocused: camera.focusStatus == .focused
+                    if activeTool == .autofocus && !camera.autofocusPoints.isEmpty {
+                        MultiPointAutofocusOverlay(
+                            points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
                         )
                         .frame(width: width, height: height)
-                        // The overlay lives inside the viewfinder's local ZStack.
-                        // Do not apply the outer GeometryReader center a second time.
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                        .transition(.opacity)
                         .allowsHitTesting(false)
                         .zIndex(12)
                     }
@@ -269,18 +260,12 @@ struct CameraScreen: View {
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
         }
-        .onChange(of: camera.focusStatus) { _, status in
-            guard status == .focused || status == .unavailable else { return }
-            let currentFocusID = focusZoneID
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-                guard focusZoneID == currentFocusID else { return }
-                withAnimation(.easeOut(duration: 0.30)) {
-                    focusZonesVisible = false
-                }
-            }
+        .onChange(of: activeTool == .autofocus && !camera.isExposureFocusLocked) { _, enabled in
+            camera.setAutofocusVisualizationEnabled(enabled)
         }
         .onAppear {
             camera.prepare()
+            camera.setAutofocusVisualizationEnabled(activeTool == .autofocus && !camera.isExposureFocusLocked)
             if showLevel { levelMonitor.start() }
         }
         .onChange(of: selectedVideoResolution) { _, _ in
@@ -300,7 +285,7 @@ struct CameraScreen: View {
         .onChange(of: showLevel) { _, enabled in
             if enabled { levelMonitor.start() } else { levelMonitor.stop() }
         }
-        .onDisappear { levelMonitor.stop() }
+        .onDisappear { levelMonitor.stop(); camera.setAutofocusVisualizationEnabled(false) }
         .alert("POP CAM", isPresented: Binding(
             get: { camera.errorMessage != nil },
             set: { if !$0 { camera.errorMessage = nil } }
@@ -398,7 +383,6 @@ struct CameraScreen: View {
                             } else {
                                 activeTool = previousTool(before: activeTool)
                                 isToolPanelExpanded = true
-                                focusZonesVisible = false
                             }
                         } else if abs(dx) < 14 && abs(dy) < 14 {
                             isToolPanelExpanded.toggle()
@@ -450,10 +434,7 @@ struct CameraScreen: View {
 
     private var autofocusPicker: some View {
         Button {
-            focusZonePoint = CGPoint(x: 0.5, y: 0.5)
-            focusZoneID += 1
-            focusZonesVisible = true
-            camera.focus(at: focusZonePoint)
+            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "viewfinder")
@@ -530,7 +511,6 @@ struct CameraScreen: View {
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         isToolPanelExpanded = false
-                        focusZonesVisible = false
                     }
                 } label: {
                     Image(systemName: "chevron.up")
@@ -1069,10 +1049,29 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
-        focusZonePoint = CGPoint(x: 0.5, y: 0.5)
-        focusZoneID += 1
-        focusZonesVisible = true
-        camera.focus(at: focusZonePoint)
+        activeTool = .autofocus
+        isToolPanelExpanded = false
+        camera.setAutofocusVisualizationEnabled(!camera.isExposureFocusLocked)
+        camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+    }
+
+    private func projectedAutofocusPoints(in size: CGSize) -> [CGPoint] {
+        guard let image = camera.previewImage, size.width > 0, size.height > 0 else { return [] }
+        let sourceAspect = CGFloat(image.width) / CGFloat(image.height)
+        let targetAspect = size.width / size.height
+
+        return camera.autofocusPoints.compactMap { point in
+            var projected = point
+            if sourceAspect > targetAspect {
+                let visibleWidth = targetAspect / sourceAspect
+                projected.x = (point.x - (1 - visibleWidth) / 2) / visibleWidth
+            } else {
+                let visibleHeight = sourceAspect / targetAspect
+                projected.y = (point.y - (1 - visibleHeight) / 2) / visibleHeight
+            }
+            guard (0...1).contains(projected.x), (0...1).contains(projected.y) else { return nil }
+            return projected
+        }
     }
 
     private func takePhoto() {
@@ -1230,43 +1229,50 @@ private struct FocusReticle: Shape {
     }
 }
 
-private struct FocusZoneGrid: View {
-    let point: CGPoint
-    let isFocused: Bool
-
-    private let cellSize: CGFloat = 30
-    private let spacing: CGFloat = 4
+private struct MultiPointAutofocusOverlay: View {
+    let points: [CGPoint]
 
     var body: some View {
         GeometryReader { geometry in
-            let centerX = min(max(point.x * geometry.size.width, cellSize * 1.6), geometry.size.width - cellSize * 1.6)
-            let centerY = min(max(point.y * geometry.size.height, cellSize * 1.6), geometry.size.height - cellSize * 1.6)
-            ZStack {
-                ForEach(0..<9, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(
-                            isFocused ? Color(hex: 0x65F58A) : Color(hex: 0xB8FFB9),
-                            lineWidth: isFocused ? 2.0 : 1.6
-                        )
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(Color(hex: 0x65F58A).opacity(isFocused ? 0.10 : 0.045))
-                        )
-                        .frame(width: cellSize, height: cellSize)
-                        .shadow(color: Color(hex: 0x48E875).opacity(isFocused ? 0.55 : 0.28), radius: 4)
-                        .position(
-                            x: centerX + CGFloat(index % 3 - 1) * (cellSize + spacing),
-                            y: centerY + CGFloat(index / 3 - 1) * (cellSize + spacing)
-                        )
-                }
-
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(isFocused ? Color(hex: 0x65F58A) : Color(hex: 0xB8FFB9))
-                    .shadow(color: Color(hex: 0x48E875).opacity(0.65), radius: 4)
-                    .position(x: centerX, y: centerY)
+            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                AutofocusPointBracket()
+                    .stroke(
+                        Color(hex: 0x63F58B),
+                        style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round)
+                    )
+                    .frame(width: 30, height: 30)
+                    .shadow(color: Color(hex: 0x40E878).opacity(0.55), radius: 4)
+                    .position(
+                        x: point.x * geometry.size.width,
+                        y: point.y * geometry.size.height
+                    )
             }
         }
+    }
+}
+
+private struct AutofocusPointBracket: Shape {
+    func path(in rect: CGRect) -> Path {
+        let length = rect.width * 0.32
+        let inset: CGFloat = 1.5
+        var path = Path()
+
+        path.move(to: CGPoint(x: inset, y: length))
+        path.addLine(to: CGPoint(x: inset, y: inset))
+        path.addLine(to: CGPoint(x: length, y: inset))
+
+        path.move(to: CGPoint(x: rect.maxX - length, y: inset))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: inset))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: length))
+
+        path.move(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - length))
+        path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: rect.maxX - length, y: rect.maxY - inset))
+
+        path.move(to: CGPoint(x: length, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: inset, y: rect.maxY - inset))
+        path.addLine(to: CGPoint(x: inset, y: rect.maxY - length))
+        return path
     }
 }
 
