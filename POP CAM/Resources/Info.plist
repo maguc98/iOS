@@ -26,6 +26,11 @@
     <string>POP CAM 需要使用麦克风录制视频声音。</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>POP CAM 需要将你拍摄的照片保存到系统照片图库。</string>
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string>LaunchBackground</string>
+    </dict>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
     <key>UIUserInterfaceStyle</key>
