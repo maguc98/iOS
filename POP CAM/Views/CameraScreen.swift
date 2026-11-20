@@ -964,17 +964,31 @@ struct CameraScreen: View {
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
-            Spacer(minLength: 0)
-            Text("H.265")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color(hex: 0x778091))
-            Rectangle().fill(Color(hex: 0xC9D4DE)).frame(width: 1, height: 18)
-            Text("10-bit")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color(hex: 0x778091))
+            Spacer(minLength: 2)
+            HStack(spacing: 5) {
+                HStack(spacing: 3) {
+                    Circle().fill(Color(hex: 0xD7B92F)).frame(width: 4, height: 4)
+                    Text("H.265")
+                }
+                .font(.system(size: 9, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 7)
+                .frame(height: 25)
+                .background(Color(hex: 0xFFE45E).opacity(0.72), in: Capsule())
+
+                HStack(spacing: 3) {
+                    Circle().fill(Color(hex: 0xD7B92F)).frame(width: 4, height: 4)
+                    Text("10-bit")
+                }
+                .font(.system(size: 9, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 7)
+                .frame(height: 25)
+                .background(Color(hex: 0xFFE45E).opacity(0.72), in: Capsule())
+            }
             Menu {
-                Button("H.265") {}
-                Button("10-bit HDR") {}
+                Button("H.265 · 当前编码") {}
+                Button("10-bit · 当前色深") {}
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .bold))
@@ -1514,28 +1528,7 @@ private struct ShutterButtonStyle: View {
             Circle()
                 .fill(Color.white)
                 .frame(width: 64, height: 64)
-            if isVideo {
-                if isRecording {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color(hex: 0xFF5967))
-                        .frame(width: 22, height: 22)
-                } else {
-                    HStack(spacing: 1) {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color(hex: 0xFF5967))
-                            .frame(width: 19, height: 16)
-                        Path { path in
-                            path.move(to: CGPoint(x: 0, y: 3))
-                            path.addLine(to: CGPoint(x: 10, y: 0))
-                            path.addLine(to: CGPoint(x: 10, y: 16))
-                            path.addLine(to: CGPoint(x: 0, y: 13))
-                            path.closeSubpath()
-                        }
-                        .fill(Color(hex: 0xFF5967))
-                        .frame(width: 10, height: 16)
-                    }
-                }
-            } else {
+            if !isVideo {
                 Circle()
                     .stroke(Color(hex: 0xFF8A45).opacity(0.20), lineWidth: 1)
                     .frame(width: 56, height: 56)
