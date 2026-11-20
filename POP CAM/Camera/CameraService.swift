@@ -297,13 +297,13 @@ final class CameraService: ObservableObject {
 
         guard error == nil else {
             try? FileManager.default.removeItem(at: url)
-            DispatchQueue.main.async { self.errorMessage = "录像失败：\\(error?.localizedDescription ?? "未知错误")" }
+            DispatchQueue.main.async { self.errorMessage = "录像失败：\(error?.localizedDescription ?? "未知错误")" }
             return
         }
 
         do {
             let destinationFolder = try appAlbumDirectory()
-            let filename = "POP_\\(Date().formatted(.dateTime.year().month().day().hour().minute().second))_\\(UUID().uuidString.prefix(6)).mov"
+            let filename = "POP_\(Date().formatted(.dateTime.year().month().day().hour().minute().second))_\(UUID().uuidString.prefix(6)).mov"
             let destinationURL = destinationFolder.appendingPathComponent(filename)
             try FileManager.default.moveItem(at: url, to: destinationURL)
             reloadSavedVideos()
@@ -313,7 +313,7 @@ final class CameraService: ObservableObject {
         } catch {
             try? FileManager.default.removeItem(at: url)
             DispatchQueue.main.async {
-                self.errorMessage = "保存到 POP CAM 相册失败：\\(error.localizedDescription)"
+                self.errorMessage = "保存到 POP CAM 相册失败：\(error.localizedDescription)"
             }
         }
     }
