@@ -163,10 +163,10 @@ struct CameraScreen: View {
                             relativeRollDegrees: levelMonitor.stabilizationRollDegrees,
                             isStabilizationActive: camera.isVideoStabilizationActive
                         )
-                        .frame(width: 126, height: 104)
+                        .frame(width: 132, height: 110)
                         .position(
-                            x: min(max(width * stabilizationHUDX, 70), width - 70),
-                            y: min(max(height * stabilizationHUDY, 58), height - 58)
+                            x: min(max(width * stabilizationHUDX, 78), width - 78),
+                            y: min(max(height * stabilizationHUDY, 67), height - 67)
                         )
                         .gesture(
                             DragGesture(minimumDistance: 4)
@@ -196,8 +196,8 @@ struct CameraScreen: View {
                         )
                         .frame(width: 174, height: 140)
                         .position(
-                            x: min(max(width * motionStatusHUDX, 84), width - 84),
-                            y: min(max(height * motionStatusHUDY, 68), height - 68)
+                            x: min(max(width * motionStatusHUDX, 99), width - 99),
+                            y: min(max(height * motionStatusHUDY, 82), height - 82)
                         )
                         .gesture(
                             DragGesture(minimumDistance: 4)
@@ -206,7 +206,7 @@ struct CameraScreen: View {
                                         motionStatusHUDDragOrigin = CGPoint(x: motionStatusHUDX, y: motionStatusHUDY)
                                     }
                                     let origin = motionStatusHUDDragOrigin ?? CGPoint(x: motionStatusHUDX, y: motionStatusHUDY)
-                                    motionStatusHUDX = min(max(origin.x + value.translation.width / width, 0.26), 0.74)
+                                    motionStatusHUDX = min(max(origin.x + value.translation.width / width, 0.57), 0.88)
                                     motionStatusHUDY = min(max(origin.y + value.translation.height / height, 0.18), 0.82)
                                 }
                                 .onEnded { _ in
@@ -1848,9 +1848,9 @@ private struct StabilizationPreviewHUD: View {
                 }
                 .padding(7)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .stroke(Color.white.opacity(0.92), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
@@ -2067,18 +2067,18 @@ private struct MotionStatusWindow: View {
                     .foregroundStyle(stabilizationTint)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.82))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color.white.opacity(0.94))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.96), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Color.white, lineWidth: 1.2)
         }
         .shadow(color: Color(hex: 0x667386).opacity(0.18), radius: 10, y: 4)
         .accessibilityElement(children: .combine)
@@ -2095,11 +2095,11 @@ private struct MotionStatusWindow: View {
             accessory()
                 .frame(width: 26, height: 12)
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color(hex: 0x343B49))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x252C39))
             Spacer(minLength: 2)
             Text(value)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
