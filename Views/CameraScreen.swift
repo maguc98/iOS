@@ -20,6 +20,8 @@ struct CameraScreen: View {
     @State private var showGrid = false
     @State private var showLevel = false
     @State private var zoom: Double = 1
+    @State private var pinchStartZoom: CGFloat?
+    @State private var zoomDragStartValue: CGFloat?
     @State private var exposure: Double = 0
     @State private var manualFocusIndicatorPoint: CGPoint?
     @State private var manualFocusIndicatorID = 0
@@ -64,8 +66,9 @@ struct CameraScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(camera.isRecording ? Color(hex: 0xFF4058) : .clear, lineWidth: camera.isRecording ? 4 : 0)
-                            .shadow(color: camera.isRecording ? Color(hex: 0xFF4058).opacity(0.55) : .clear, radius: 9)
+                            .stroke(Color(hex: 0xFF4058).opacity(camera.isRecording ? 1 : 0), lineWidth: 4)
+                            .shadow(color: Color(hex: 0xFF4058).opacity(camera.isRecording ? 0.55 : 0), radius: camera.isRecording ? 9 : 0)
+                            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: camera.isRecording)
                     }
                     .overlay(alignment: .topLeading) {
                         if camera.isRecording {
@@ -73,14 +76,21 @@ struct CameraScreen: View {
                                 Circle().fill(Color(hex: 0xFF4058)).frame(width: 7, height: 7)
                                 Text(String(format: "REC  %02d:%02d", Int(camera.recordingDuration) / 60, Int(camera.recordingDuration) % 60))
                                     .font(.system(size: 12, weight: .heavy, design: .rounded).monospacedDigit())
+                                    .contentTransition(.numericText())
+                                    .animation(.snappy(duration: 0.24), value: Int(camera.recordingDuration))
                                     .foregroundStyle(Color(hex: 0xFF4058))
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(.ultraThinMaterial, in: Capsule())
                             .padding(12)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.92, anchor: .topLeading)),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
                         }
                     }
+                    .animation(.spring(response: 0.38, dampingFraction: 0.84), value: camera.isRecording)
                     .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .onTapGesture(coordinateSpace: .local) { location in
                         let normalizedPoint = CGPoint(
@@ -182,6 +192,19 @@ struct CameraScreen: View {
                     }
                 }
                 .frame(width: width, height: height)
+                .simultaneousGesture(
+                    MagnifyGesture()
+                        .onChanged { value in
+                            if pinchStartZoom == nil {
+                                pinchStartZoom = CGFloat(zoom)
+                            }
+                            let start = pinchStartZoom ?? CGFloat(zoom)
+                            applyZoom(start * pow(value.magnification, 1.22))
+                        }
+                        .onEnded { _ in
+                            pinchStartZoom = nil
+                        }
+                )
                 .position(x: centerX, y: centerY)
             }
             .ignoresSafeArea()
@@ -280,6 +303,9 @@ struct CameraScreen: View {
         }
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
+        }
+        .onChange(of: camera.zoomFactor) { _, value in
+            zoom = Double(value)
         }
         .onChange(of: activeTool == .autofocus && !camera.isExposureFocusLocked) { _, enabled in
             camera.setAutofocusVisualizationEnabled(enabled)
@@ -639,36 +665,58 @@ struct CameraScreen: View {
     }
 
     private var zoomControl: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 5) {
             zoomButton(0.5)
             zoomButton(1)
             zoomButton(2)
-            zoomButton(3)
+            zoomButton(5)
+            zoomButton(10)
         }
         .padding(5)
         .padding(4)
         .background(Color.white.opacity(0.76), in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.28)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { value in
+                    guard case .second(true, let drag?) = value else { return }
+                    if zoomDragStartValue == nil {
+                        zoomDragStartValue = CGFloat(zoom)
+                    }
+                    let start = zoomDragStartValue ?? CGFloat(zoom)
+                    let multiplier = pow(10, drag.translation.width / 260)
+                    applyZoom(start * multiplier)
+                }
+                .onEnded { _ in
+                    zoomDragStartValue = nil
+                }
+        )
     }
 
     private func zoomButton(_ value: Double) -> some View {
         Button {
-            zoom = value
-            camera.setZoom(CGFloat(value))
+            applyZoom(CGFloat(value))
         } label: {
-            Text(value == 0.5 ? "0.5×" : (value == 1 ? "1×" : "\(Int(value))×"))
-                .font(.system(size: 12, weight: .bold, design: .rounded))
+            Text(value == 0.5 ? "0.5×" : "\(Int(value))×")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x3D4352))
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
                 .background {
-                    if abs(zoom - value) < 0.01 {
+                    if abs(zoom - value) < 0.04 {
                         Capsule().fill(Color(hex: 0xFFE45E))
                     }
                 }
         }
         .buttonStyle(.plain)
+    }
+
+    private func applyZoom(_ value: CGFloat) {
+        let clamped = min(max(value, 0.5), 10)
+        zoom = Double(clamped)
+        camera.setZoom(clamped)
     }
 
     private var shutterControls: some View {

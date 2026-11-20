@@ -624,19 +624,28 @@ final class CameraService: ObservableObject {
 
     func setZoom(_ value: CGFloat) {
         let wantsUltraWide = value < 1 && cameraPosition == .back
-        let requestedZoom = wantsUltraWide ? 0.5 : min(max(value, 1), 5)
+        let requestedZoom = wantsUltraWide ? 0.5 : min(max(value, 1), 10)
         zoomFactor = requestedZoom
+
         sessionQueue.async { [weak self] in
-            guard let self, let oldInput = self.activeInput?.device else { return }
-            let targetType: AVCaptureDevice.DeviceType = wantsUltraWide ? .builtInUltraWideCamera : .builtInWideAngleCamera
-            guard let targetDevice = AVCaptureDevice.default(targetType, for: .video, position: self.cameraPosition),
-                  let targetInput = try? AVCaptureDeviceInput(device: targetDevice) else { return }
+            guard let self, let currentInput = self.activeInput,
+                  let oldDevice = self.activeInput?.device else { return }
+
+            let targetType: AVCaptureDevice.DeviceType = wantsUltraWide
+                ? .builtInUltraWideCamera
+                : .builtInWideAngleCamera
+            guard let targetDevice = AVCaptureDevice.default(
+                targetType,
+                for: .video,
+                position: self.cameraPosition
+            ), let targetInput = try? AVCaptureDeviceInput(device: targetDevice) else { return }
+
             do {
-                if oldInput.uniqueID != targetDevice.uniqueID {
+                if oldDevice.uniqueID != targetDevice.uniqueID {
                     self.session.beginConfiguration()
-                    self.session.removeInput(self.activeInput!)
+                    self.session.removeInput(currentInput)
                     guard self.session.canAddInput(targetInput) else {
-                        self.session.addInput(self.activeInput!)
+                        self.session.addInput(currentInput)
                         self.session.commitConfiguration()
                         self.applyPortraitOrientation()
                         return
@@ -646,14 +655,22 @@ final class CameraService: ObservableObject {
                     self.session.commitConfiguration()
                     self.applyPortraitOrientation()
                 }
+
                 try targetDevice.lockForConfiguration()
-                targetDevice.videoZoomFactor = wantsUltraWide
-                    ? 1
-                    : min(requestedZoom, targetDevice.activeFormat.videoMaxZoomFactor)
+                let hardwareMaximum = min(CGFloat(10), targetDevice.maxAvailableVideoZoomFactor)
+                let hardwareTarget = wantsUltraWide ? CGFloat(1) : min(requestedZoom, hardwareMaximum)
+                targetDevice.cancelVideoZoomRamp()
+                targetDevice.ramp(toVideoZoomFactor: hardwareTarget, withRate: 8)
                 targetDevice.unlockForConfiguration()
-                DispatchQueue.main.async { self.zoomFactor = requestedZoom }
+
+                let displayedZoom = wantsUltraWide ? CGFloat(0.5) : hardwareTarget
+                DispatchQueue.main.async {
+                    self.zoomFactor = displayedZoom
+                }
             } catch {
-                DispatchQueue.main.async { self.errorMessage = "暂时无法调整变焦。" }
+                DispatchQueue.main.async {
+                    self.errorMessage = "暂时无法调整变焦。"
+                }
             }
         }
     }
