@@ -2620,10 +2620,6 @@ private struct MotionStatusWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("运动状态窗口：\(isLevel ? "水平" : "未水平")，倾斜角度 \(String(format: "%.1f", tiltDegrees)) 度，晃动 \(shakeDescription)，防抖\(stabilizationDescription)")
     }
