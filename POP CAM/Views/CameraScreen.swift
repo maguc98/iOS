@@ -1518,36 +1518,49 @@ private struct LocalMediaAlbumSheet: View {
                 .ignoresSafeArea()
 
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 3) {
-                        ForEach(displayedMedia, id: \.absoluteString) { url in
-                            Button {
-                                if isSelecting {
-                                    toggleSelection(for: url)
-                                } else {
-                                    selectedURL = url
-                                    showViewer = true
+                    if displayedMedia.isEmpty {
+                        ContentUnavailableView(
+                            selectedTab == .favorites ? "精选集还是空的" : "相册还是空的",
+                            systemImage: selectedTab == .favorites ? "heart" : "photo.on.rectangle.angled",
+                            description: Text(
+                                selectedTab == .favorites
+                                    ? "打开一张照片，点击爱心即可加入精选集。"
+                                    : "在 POP CAM 拍摄并保存的照片和视频，会显示在这里。"
+                            )
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 3) {
+                            ForEach(displayedMedia, id: \.absoluteString) { url in
+                                Button {
+                                    if isSelecting {
+                                        toggleSelection(for: url)
+                                    } else {
+                                        selectedURL = url
+                                        showViewer = true
+                                    }
+                                } label: {
+                                    LocalAlbumThumbnail(url: url)
+                                        .overlay(alignment: .topTrailing) {
+                                            if isSelecting {
+                                                selectionMark(isSelected: selectedPaths.contains(url.path))
+                                                    .padding(5)
+                                            }
+                                        }
+                                        .overlay {
+                                            if selectedPaths.contains(url.path) {
+                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                    .stroke(Color(hex: 0x78B8EE), lineWidth: 3)
+                                            }
+                                        }
                                 }
-                            } label: {
-                                LocalAlbumThumbnail(url: url)
-                                    .overlay(alignment: .topTrailing) {
-                                        if isSelecting {
-                                            selectionMark(isSelected: selectedPaths.contains(url.path))
-                                                .padding(5)
-                                        }
-                                    }
-                                    .overlay {
-                                        if selectedPaths.contains(url.path) {
-                                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                                .stroke(Color(hex: 0x78B8EE), lineWidth: 3)
-                                        }
-                                    }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal, 3)
+                        .padding(.top, 3)
+                        .padding(.bottom, 18)
                     }
-                    .padding(.horizontal, 3)
-                    .padding(.top, 3)
-                    .padding(.bottom, 18)
                 }
                 .scrollIndicators(.hidden)
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -2284,6 +2297,8 @@ private struct AlbumViewerPage: View {
 private struct AlbumInfoSheet: View {
     let url: URL
 
+    @Environment(\.dismiss) private var dismiss
+
     private var attributes: [FileAttributeKey: Any] {
         (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
     }
@@ -2328,7 +2343,7 @@ private struct AlbumInfoSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { }
+                    Button("完成") { dismiss() }
                 }
             }
         }
