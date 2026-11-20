@@ -2973,10 +2973,16 @@ private struct LocalAlbumDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @AppStorage("popcam.album.favorites") private var favoritePathsStorage = ""
+    @AppStorage("popcam.superResolutionScale") private var superResolutionScale = 2
+
     @State private var currentIndex: Int
     @State private var showInfo = false
     @State private var showDeleteConfirmation = false
     @State private var isAspectFit = true
+    @State private var controlsVisible = true
+    @State private var showStudio = false
+    @State private var studioStartsWithAI = false
+    @State private var favoritePulse = false
 
     init(media: [URL], initialURL: URL, onDelete: @escaping (URL) -> Void) {
         self.media = media
@@ -2998,32 +3004,84 @@ private struct LocalAlbumDetailView: View {
         favoritePaths.contains(currentURL.path)
     }
 
+    private var currentDate: Date {
+        Self.mediaDate(currentURL)
+    }
+
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color(hex: 0xF4F8FC).ignoresSafeArea()
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(media.enumerated()), id: \.offset) { index, url in
                     AlbumViewerPage(url: url, isAspectFit: isAspectFit)
                         .tag(index)
-                    .accessibilityLabel(url.isVideoMedia ? "视频" : "照片")
+                        .accessibilityLabel(url.isVideoMedia ? "视频" : "照片")
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .padding(.top, controlsVisible ? 0 : -2)
 
             VStack(spacing: 0) {
-                viewerHeader
-                Spacer(minLength: 18)
-                thumbnailStrip
-                viewerToolbar
+                if controlsVisible {
+                    viewerHeader
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                Spacer(minLength: 0)
+
+                if controlsVisible {
+                    viewerFooter
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: controlsVisible)
+
+            if favoritePulse {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(Color(hex: 0xF18B9D))
+                            .padding(16)
+                            .background(Color.white, in: Circle())
+                            .shadow(color: Color(hex: 0xF18B9D).opacity(0.18), radius: 16, y: 6)
+                            .scaleEffect(favoritePulse ? 1 : 0.35)
+                            .rotationEffect(.degrees(favoritePulse ? 0 : -24))
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.scale.combined(with: .opacity))
             }
         }
-        .statusBarHidden(false)
+        .statusBarHidden(!controlsVisible)
         .sheet(isPresented: $showInfo) {
             AlbumInfoSheet(url: currentURL)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(26)
+                .presentationBackground(Color(hex: 0xF4F8FC))
+        }
+        .sheet(isPresented: $showStudio) {
+            if let image = UIImage(contentsOfFile: currentURL.path), !currentURL.isVideoMedia {
+                AlbumPhotoStudioView(
+                    image: image,
+                    sourceName: currentURL.lastPathComponent,
+                    startsWithAI: studioStartsWithAI,
+                    preferredScale: superResolutionScale,
+                    onSaveCopy: { editedImage, isAI in
+                        saveEditedCopy(editedImage, isAI: isAI)
+                    }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
+                .presentationBackground(Color(hex: 0xF4F8FC))
+            }
         }
         .confirmationDialog("删除这项媒体？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("删除", role: .destructive) {
@@ -3035,163 +3093,237 @@ private struct LocalAlbumDetailView: View {
     }
 
     private var viewerHeader: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 dismiss()
             } label: {
                 viewerCircleButton(symbol: "chevron.left")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(POPPressableStyle())
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 1) {
-                Text(Self.relativeDateText(Self.mediaDate(currentURL)))
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                Text(Self.timeText(Self.mediaDate(currentURL)))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+            VStack(spacing: 2) {
+                Text(Self.relativeDateText(currentDate))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x354255))
+                Text(Self.timeText(currentDate))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x7D8B9C))
             }
-            .foregroundStyle(Color(hex: 0x374357))
-            .frame(maxWidth: 176)
+            .frame(maxWidth: 170)
             .frame(height: 48)
-            .background(
-                Color(hex: 0xE8F4FA),
-                in: Capsule()
-            )
+            .background(Color.white, in: Capsule())
 
             Spacer(minLength: 0)
 
             Menu {
-                ShareLink(item: currentURL) {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    showInfo = true
-                } label: {
-                    Label("媒体信息", systemImage: "info.circle")
-                }
                 Button {
                     isAspectFit = true
                 } label: {
                     Label("适应屏幕", systemImage: "arrow.down.right.and.arrow.up.left")
                 }
+                Button {
+                    isAspectFit = false
+                } label: {
+                    Label("填满屏幕", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                Button {
+                    showInfo = true
+                } label: {
+                    Label("照片信息", systemImage: "info.circle")
+                }
+                if !currentURL.isVideoMedia {
+                    Button {
+                        openStudio(startAI: false)
+                    } label: {
+                        Label("使用 POP Studio 编辑", systemImage: "slider.horizontal.3")
+                    }
+                    Button {
+                        openStudio(startAI: true)
+                    } label: {
+                        Label("AI 超分增强", systemImage: "sparkles")
+                    }
+                }
             } label: {
                 viewerCircleButton(symbol: "ellipsis")
             }
         }
-        .padding(.horizontal, 17)
-        .padding(.top, 8)
+        .padding(.horizontal, 18)
+        .padding(.top, 9)
+    }
+
+    private var viewerFooter: some View {
+        VStack(spacing: 8) {
+            thumbnailStrip
+
+            HStack(spacing: 9) {
+                ShareLink(item: currentURL) {
+                    viewerCircleButton(symbol: "square.and.arrow.up")
+                }
+                .buttonStyle(POPPressableStyle())
+
+                HStack(spacing: 0) {
+                    Button {
+                        toggleFavorite()
+                    } label: {
+                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                            .foregroundStyle(isFavorite ? Color(hex: 0xF18B9D) : Color(hex: 0x52647A))
+                            .symbolEffect(.bounce, value: isFavorite)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                    .buttonStyle(POPPressableStyle())
+                    .accessibilityLabel(isFavorite ? "取消收藏" : "收藏")
+
+                    Button {
+                        showInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(Color(hex: 0x52647A))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                    .buttonStyle(POPPressableStyle())
+                    .accessibilityLabel("照片信息")
+
+                    Button {
+                        openStudio(startAI: false)
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundStyle(Color(hex: 0x52647A))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                    .buttonStyle(POPPressableStyle())
+                    .disabled(currentURL.isVideoMedia)
+                    .opacity(currentURL.isVideoMedia ? 0.38 : 1)
+                    .accessibilityLabel("编辑照片")
+
+                    Button {
+                        openStudio(startAI: true)
+                    } label: {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Color(hex: 0x8F79C7))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                    .buttonStyle(POPPressableStyle())
+                    .disabled(currentURL.isVideoMedia)
+                    .opacity(currentURL.isVideoMedia ? 0.38 : 1)
+                    .accessibilityLabel("AI 超分增强")
+                }
+                .font(.system(size: 19, weight: .semibold))
+                .frame(width: 220)
+                .background(Color.white, in: Capsule())
+
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    viewerCircleButton(symbol: "trash", tint: Color(hex: 0xD97D83), fill: 0xFCEBF1)
+                }
+                .buttonStyle(POPPressableStyle())
+                .accessibilityLabel("删除照片")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        }
     }
 
     private var thumbnailStrip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
+                HStack(spacing: 8) {
                     ForEach(Array(media.enumerated()), id: \.offset) { index, url in
                         Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
                                 currentIndex = index
                             }
+                            UISelectionFeedbackGenerator().selectionChanged()
                         } label: {
                             LocalAlbumThumbnail(url: url)
-                                .frame(width: 54, height: 54)
+                                .frame(width: 50, height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
                                         .stroke(
-                                            currentIndex == index ? Color(hex: 0x8CC5F0) : Color.white.opacity(0.72),
+                                            currentIndex == index ? Color(hex: 0x7FB9E8) : Color.white,
                                             lineWidth: currentIndex == index ? 2.5 : 1
                                         )
                                 }
-                                .opacity(currentIndex == index ? 1 : 0.62)
+                                .scaleEffect(currentIndex == index ? 1 : 0.92)
+                                .opacity(currentIndex == index ? 1 : 0.68)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(POPPressableStyle())
                         .id(index)
                     }
                 }
-                .padding(.horizontal, 13)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
             }
             .onChange(of: currentIndex) { _, newValue in
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
                     proxy.scrollTo(newValue, anchor: .center)
                 }
             }
         }
-        .frame(height: 70)
+        .frame(height: 62)
     }
 
-    private var viewerToolbar: some View {
-        HStack(spacing: 11) {
-            ShareLink(item: currentURL) {
-                viewerCircleButton(symbol: "square.and.arrow.up")
-            }
-
-            HStack(spacing: 0) {
-                Button {
-                    toggleFavorite()
-                } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .foregroundStyle(isFavorite ? Color(hex: 0xF18B9D) : Color(hex: 0x53647A))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                }
-
-                Button {
-                    showInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(Color(hex: 0x53647A))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                }
-
-                Button {
-                    isAspectFit.toggle()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(Color(hex: 0x53647A))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                }
-            }
-            .font(.system(size: 22, weight: .semibold))
-            .frame(width: 188)
-            .background(
-                Color(hex: 0xE8F4FA),
-                in: Capsule()
-            )
-
-            Button {
-                showDeleteConfirmation = true
-            } label: {
-                viewerCircleButton(symbol: "trash", tint: Color(hex: 0xD97D83))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 17)
-        .padding(.top, 7)
-        .padding(.bottom, 10)
-    }
-
-    private func viewerCircleButton(symbol: String, tint: Color = Color(hex: 0x53647A)) -> some View {
+    private func viewerCircleButton(
+        symbol: String,
+        tint: Color = Color(hex: 0x52647A),
+        fill: UInt32 = 0xFFFFFF
+    ) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 20, weight: .semibold))
+            .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(tint)
-            .frame(width: 50, height: 50)
-            .background(
-                Color(hex: 0xE8F4FA), in: Circle()
-            )
-            
+            .frame(width: 48, height: 48)
+            .background(Color(hex: fill), in: Circle())
+            .contentShape(Circle())
     }
 
     private func toggleFavorite() {
         var paths = favoritePaths
-        if paths.contains(currentURL.path) {
-            paths.remove(currentURL.path)
-        } else {
+        let adding = !paths.contains(currentURL.path)
+        if adding {
             paths.insert(currentURL.path)
+        } else {
+            paths.remove(currentURL.path)
         }
         favoritePathsStorage = paths.sorted().joined(separator: "\n")
+        guard adding else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.58)) {
+            favoritePulse = true
+        }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            withAnimation(.easeOut(duration: 0.22)) {
+                favoritePulse = false
+            }
+        }
+    }
+
+    private func openStudio(startAI: Bool) {
+        guard !currentURL.isVideoMedia else { return }
+        studioStartsWithAI = startAI
+        showStudio = true
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+
+    private func saveEditedCopy(_ image: UIImage, isAI: Bool) -> URL? {
+        let directory = currentURL.deletingLastPathComponent()
+        let timestamp = Date.now.formatted(.iso8601).replacingOccurrences(of: ":", with: "-")
+        let prefix = isAI ? "POP_AI" : "POP_EDIT"
+        let fileName = "\(prefix)_\(timestamp)_\(UUID().uuidString.prefix(5)).jpg"
+        let destination = directory.appendingPathComponent(fileName)
+        guard let data = image.jpegData(compressionQuality: 0.98) else { return nil }
+        do {
+            try data.write(to: destination, options: .atomic)
+            return destination
+        } catch {
+            return nil
+        }
     }
 
     private static func mediaDate(_ url: URL) -> Date {
@@ -3222,14 +3354,16 @@ private struct AlbumViewerPage: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color(hex: 0xF4F8FC)
 
             if url.isVideoMedia {
                 if let player {
                     VideoPlayer(player: player)
                         .onAppear { player.play() }
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(.horizontal, 8)
                 } else {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(Color(hex: 0x7C91A8))
                 }
             } else if let image {
                 Image(uiImage: image)
@@ -3238,27 +3372,31 @@ private struct AlbumViewerPage: View {
                     .scaleEffect(zoomScale)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
+                    .contentShape(Rectangle())
                     .gesture(
                         MagnificationGesture()
                             .onChanged { value in
                                 zoomScale = min(max(value, 1), 5)
                             }
                             .onEnded { _ in
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
                                     if zoomScale < 1.05 { zoomScale = 1 }
                                 }
                             }
                     )
                     .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
                             zoomScale = zoomScale > 1.1 ? 1 : 2
                         }
                     }
+                    .transition(.opacity)
             } else {
-                ProgressView().tint(.white)
+                ProgressView().tint(Color(hex: 0x7C91A8))
             }
         }
+        .padding(.vertical, 6)
         .task(id: url) {
+            image = nil
             if url.isVideoMedia {
                 player?.pause()
                 player = AVPlayer(url: url)
@@ -3269,15 +3407,635 @@ private struct AlbumViewerPage: View {
                     UIImage(contentsOfFile: fileURL.path)
                 }.value
                 guard !Task.isCancelled else { return }
-                image = loadedImage
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    image = loadedImage
+                    zoomScale = 1
+                }
             }
         }
         .onChange(of: isAspectFit) { _, _ in
-            zoomScale = 1
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                zoomScale = 1
+            }
         }
         .onDisappear {
             player?.pause()
             player = nil
+        }
+    }
+}
+
+private struct AlbumPhotoStudioView: View {
+    let image: UIImage
+    let sourceName: String
+    let startsWithAI: Bool
+    let preferredScale: Int
+    let onSaveCopy: (UIImage, Bool) -> URL?
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var exposure = 0.0
+    @State private var contrast = 1.0
+    @State private var saturation = 1.0
+    @State private var sharpness = 0.0
+    @State private var cropMode: StudioCropMode = .original
+    @State private var preset: StudioPreset = .original
+    @State private var aiScale = 2
+    @State private var enhancedImage: UIImage?
+    @State private var showingEnhanced = false
+    @State private var isEnhancing = false
+    @State private var enhancementProgress = 0.0
+    @State private var enhancementError: String?
+    @State private var savedURL: URL?
+    @State private var showSavedAlert = false
+    @State private var undoStack: [StudioEditSnapshot] = []
+    @State private var redoStack: [StudioEditSnapshot] = []
+
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    private var displayImage: UIImage {
+        if showingEnhanced, let enhancedImage { return enhancedImage }
+        return renderEditedImage()
+    }
+
+    private var canUndo: Bool { !undoStack.isEmpty }
+    private var canRedo: Bool { !redoStack.isEmpty }
+
+    var body: some View {
+        ZStack {
+            Color(hex: 0xF4F8FC).ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                editorHeader
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        previewCard
+                        if let enhancedImage {
+                            comparisonControl
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                        presetPicker
+                        adjustmentPanel
+                        cropPanel
+                        aiPanel
+                        savePanel
+                    }
+                    .padding(.horizontal, 17)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+        .alert("已保存副本", isPresented: $showSavedAlert) {
+            Button("完成") {}
+        } message: {
+            Text(savedURL?.lastPathComponent ?? "编辑后的照片已保存到 POP CAM 相簿。")
+        }
+        .task {
+            aiScale = preferredScale == 4 ? 4 : 2
+            if startsWithAI {
+                runAIEnhancement()
+            }
+        }
+    }
+
+    private var editorHeader: some View {
+        HStack(spacing: 10) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x4A596B))
+                    .frame(width: 42, height: 42)
+                    .background(Color.white, in: Circle())
+            }
+            .buttonStyle(POPPressableStyle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("POP STUDIO")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .tracking(2)
+                    .foregroundStyle(Color(hex: 0x8B9DB0))
+                Text("照片工坊")
+                    .font(.system(size: 19, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x354255))
+            }
+
+            Spacer()
+
+            Button {
+                undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(canUndo ? Color(hex: 0x4F7599) : Color(hex: 0xB8C1CC))
+                    .frame(width: 38, height: 38)
+                    .background(Color.white, in: Circle())
+            }
+            .disabled(!canUndo)
+            .buttonStyle(.plain)
+
+            Button {
+                redo()
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(canRedo ? Color(hex: 0x4F7599) : Color(hex: 0xB8C1CC))
+                    .frame(width: 38, height: 38)
+                    .background(Color.white, in: Circle())
+            }
+            .disabled(!canRedo)
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 17)
+        .padding(.top, 12)
+        .padding(.bottom, 7)
+    }
+
+    private var previewCard: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white)
+            Image(uiImage: displayImage)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+                .frame(height: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .padding(10)
+                .transition(.opacity)
+            HStack(spacing: 6) {
+                Image(systemName: showingEnhanced ? "sparkles" : "slider.horizontal.3")
+                Text(showingEnhanced ? "AI 增强预览" : "实时预览")
+            }
+            .font(.system(size: 9, weight: .black, design: .rounded))
+            .foregroundStyle(Color(hex: 0x556A83))
+            .padding(.horizontal, 10)
+            .frame(height: 27)
+            .background(Color(hex: 0xE8F4FA), in: Capsule())
+            .padding(17)
+        }
+        .frame(height: 320)
+        .animation(.easeInOut(duration: 0.22), value: showingEnhanced)
+    }
+
+    private var comparisonControl: some View {
+        HStack(spacing: 8) {
+            comparisonButton("编辑结果", selected: !showingEnhanced) {
+                withAnimation(.easeInOut(duration: 0.18)) { showingEnhanced = false }
+            }
+            comparisonButton("AI 超分", selected: showingEnhanced) {
+                withAnimation(.easeInOut(duration: 0.18)) { showingEnhanced = true }
+            }
+        }
+    }
+
+    private func comparisonButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x43536A))
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(selected ? Color(hex: 0xDCEEFF) : Color.white, in: Capsule())
+        }
+        .buttonStyle(POPPressableStyle())
+    }
+
+    private var presetPicker: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            sectionTitle("快速风格", detail: "PRESETS")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    presetChip(.original, tint: 0xFFFFFF)
+                    presetChip(.fresh, tint: 0xDDF2E5)
+                    presetChip(.cream, tint: 0xFFF0D8)
+                    presetChip(.pink, tint: 0xF9E1EB)
+                    presetChip(.night, tint: 0xEAE3FA)
+                }
+            }
+        }
+    }
+
+    private func presetChip(_ value: StudioPreset, tint: UInt32) -> some View {
+        Button {
+            pushUndo()
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                preset = value
+                switch value {
+                case .original:
+                    exposure = 0; contrast = 1; saturation = 1; sharpness = 0
+                case .fresh:
+                    exposure = 0.18; contrast = 1.06; saturation = 1.12; sharpness = 0.14
+                case .cream:
+                    exposure = 0.10; contrast = 0.96; saturation = 0.88; sharpness = 0.05
+                case .pink:
+                    exposure = 0.08; contrast = 1.02; saturation = 1.08; sharpness = 0.08
+                case .night:
+                    exposure = -0.12; contrast = 1.18; saturation = 0.92; sharpness = 0.22
+                }
+                showingEnhanced = false
+            }
+        } label: {
+            Text(value.title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x43536A))
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Color(hex: tint), in: Capsule())
+                .overlay {
+                    Capsule().stroke(preset == value ? Color(hex: 0x7FB9E8) : Color.white, lineWidth: preset == value ? 2 : 1)
+                }
+        }
+        .buttonStyle(POPPressableStyle())
+    }
+
+    private var adjustmentPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            sectionTitle("精细调整", detail: "ADJUST")
+            adjustmentSlider("曝光", value: $exposure, range: -2...2, valueText: String(format: "%+.1f EV", exposure), icon: "sun.max.fill")
+            adjustmentSlider("对比度", value: $contrast, range: 0.5...1.8, valueText: String(format: "%.2f", contrast), icon: "circle.lefthalf.filled")
+            adjustmentSlider("饱和度", value: $saturation, range: 0...1.8, valueText: String(format: "%.2f", saturation), icon: "drop.fill")
+            adjustmentSlider("细节锐化", value: $sharpness, range: 0...1, valueText: String(format: "%.2f", sharpness), icon: "sparkle")
+        }
+        .padding(15)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func adjustmentSlider(
+        _ title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        valueText: String,
+        icon: String
+    ) -> some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x8198B3))
+                    .frame(width: 16)
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x526176))
+                Spacer()
+                Text(valueText)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x8592A3))
+            }
+            Slider(value: value, in: range, onEditingChanged: { editing in
+                if editing {
+                    pushUndo()
+                    showingEnhanced = false
+                }
+            })
+            .tint(Color(hex: 0xE9CD67))
+        }
+    }
+
+    private var cropPanel: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            sectionTitle("画面比例", detail: "CROP")
+            HStack(spacing: 8) {
+                cropButton(.original)
+                cropButton(.square)
+                cropButton(.portrait)
+                cropButton(.wide)
+                Button {
+                    pushUndo()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        cropMode = cropMode.next
+                        showingEnhanced = false
+                    }
+                } label: {
+                    Image(systemName: "crop.rotate")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x586A7E))
+                        .frame(width: 42, height: 38)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("切换裁剪比例")
+            }
+        }
+    }
+
+    private func cropButton(_ value: StudioCropMode) -> some View {
+        Button {
+            pushUndo()
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                cropMode = value
+                showingEnhanced = false
+            }
+        } label: {
+            Text(value.title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x53647A))
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background(cropMode == value ? Color(hex: 0xDCEEFF) : Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var aiPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x9B83CE))
+                    .frame(width: 36, height: 36)
+                    .background(Color(hex: 0xF1ECFA), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AI 超分 · Real-ESRGAN")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                    Text("提升细节，输出更高分辨率副本")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x8996A6))
+                }
+                Spacer()
+                Menu {
+                    Button("2× 增强") { aiScale = 2 }
+                    Button("4× 增强") { aiScale = 4 }
+                } label: {
+                    Text("\(aiScale)×")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x695D8A))
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(Color(hex: 0xF1ECFA), in: Capsule())
+                }
+            }
+
+            if isEnhancing {
+                VStack(spacing: 7) {
+                    HStack {
+                        ProgressView().tint(Color(hex: 0x9B83CE))
+                        Text("AI 正在处理照片…")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: 0x526176))
+                        Spacer()
+                        Text("\(Int(enhancementProgress * 100))%")
+                            .font(.system(size: 10, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(Color(hex: 0x8996A6))
+                    }
+                    ProgressView(value: enhancementProgress)
+                        .tint(Color(hex: 0xA991E2))
+                }
+            } else if let enhancementError {
+                Text(enhancementError)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color(hex: 0xB8485B))
+            } else if enhancedImage != nil {
+                Label("AI 增强已完成，可切换对比", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x68A986))
+            }
+
+            Button(action: runAIEnhancement) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                    Text(enhancedImage == nil ? "开始 AI 超分" : "重新进行 AI 超分")
+                    Spacer()
+                    Text("\(aiScale)×")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                }
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x4D4564))
+                .padding(.horizontal, 14)
+                .frame(height: 43)
+                .background(Color(hex: 0xEAE3FA), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+            .buttonStyle(POPPressableStyle())
+            .disabled(isEnhancing)
+            .opacity(isEnhancing ? 0.55 : 1)
+        }
+        .padding(15)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var savePanel: some View {
+        VStack(spacing: 9) {
+            Button {
+                let output = displayImage
+                let isAI = showingEnhanced && enhancedImage != nil
+                savedURL = onSaveCopy(output, isAI)
+                showSavedAlert = savedURL != nil
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.down.fill")
+                    Text(savedURL == nil ? "保存为新照片副本" : "再次保存副本")
+                }
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(Color(hex: 0xFFE45E), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            }
+            .buttonStyle(POPPressableStyle())
+
+            if let savedURL {
+                ShareLink(item: savedURL) {
+                    Label("分享已保存的副本", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x597B9D))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(Color.white, in: Capsule())
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String, detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4A59))
+            Spacer()
+            Text(detail)
+                .font(.system(size: 8, weight: .black, design: .rounded))
+                .tracking(1.5)
+                .foregroundStyle(Color(hex: 0xA2ADBA))
+        }
+    }
+
+    private func runAIEnhancement() {
+        guard !isEnhancing else { return }
+        let input = renderEditedImage()
+        let scale = aiScale
+        isEnhancing = true
+        enhancementProgress = 0
+        enhancementError = nil
+        enhancedImage = nil
+        showingEnhanced = false
+
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try RealESRGANProcessor.enhance(image: input, scale: scale) { value in
+                        DispatchQueue.main.async {
+                            enhancementProgress = value
+                        }
+                    }
+                }.value
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
+                    enhancedImage = result
+                    showingEnhanced = true
+                }
+            } catch {
+                enhancementError = error.localizedDescription
+            }
+            isEnhancing = false
+        }
+    }
+
+    private func renderEditedImage() -> UIImage {
+        guard var ciImage = CIImage(image: image) else { return image }
+
+        if cropMode != .original {
+            let extent = ciImage.extent
+            let targetRatio = cropMode.ratio
+            let sourceRatio = extent.width / max(extent.height, 1)
+            let cropRect: CGRect
+            if sourceRatio > targetRatio {
+                let width = extent.height * targetRatio
+                cropRect = CGRect(x: extent.midX - width / 2, y: extent.minY, width: width, height: extent.height)
+            } else {
+                let height = extent.width / targetRatio
+                cropRect = CGRect(x: extent.minX, y: extent.midY - height / 2, width: extent.width, height: height)
+            }
+            ciImage = ciImage.cropped(to: cropRect)
+        }
+
+        if let exposureFilter = CIFilter(name: "CIExposureAdjust") {
+            exposureFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            exposureFilter.setValue(exposure, forKey: kCIInputEVKey)
+            ciImage = exposureFilter.outputImage ?? ciImage
+        }
+
+        if let colorFilter = CIFilter(name: "CIColorControls") {
+            colorFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            colorFilter.setValue(contrast, forKey: kCIInputContrastKey)
+            colorFilter.setValue(saturation, forKey: kCIInputSaturationKey)
+            colorFilter.setValue(0.0, forKey: kCIInputBrightnessKey)
+            ciImage = colorFilter.outputImage ?? ciImage
+        }
+
+        if sharpness > 0, let sharpenFilter = CIFilter(name: "CISharpenLuminance") {
+            sharpenFilter.setValue(ciImage, forKey: kCIInputImageKey)
+            sharpenFilter.setValue(sharpness, forKey: kCIInputSharpnessKey)
+            ciImage = sharpenFilter.outputImage ?? ciImage
+        }
+
+        guard let output = Self.ciContext.createCGImage(ciImage, from: ciImage.extent) else { return image }
+        return UIImage(cgImage: output, scale: image.scale, orientation: .up)
+    }
+
+    private func pushUndo() {
+        undoStack.append(snapshot)
+        if undoStack.count > 40 { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+
+    private var snapshot: StudioEditSnapshot {
+        StudioEditSnapshot(
+            exposure: exposure,
+            contrast: contrast,
+            saturation: saturation,
+            sharpness: sharpness,
+            cropMode: cropMode,
+            preset: preset
+        )
+    }
+
+    private func apply(_ snapshot: StudioEditSnapshot) {
+        exposure = snapshot.exposure
+        contrast = snapshot.contrast
+        saturation = snapshot.saturation
+        sharpness = snapshot.sharpness
+        cropMode = snapshot.cropMode
+        preset = snapshot.preset
+        enhancedImage = nil
+        showingEnhanced = false
+    }
+
+    private func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(snapshot)
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            apply(previous)
+        }
+    }
+
+    private func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(snapshot)
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            apply(next)
+        }
+    }
+}
+
+private struct StudioEditSnapshot {
+    let exposure: Double
+    let contrast: Double
+    let saturation: Double
+    let sharpness: Double
+    let cropMode: StudioCropMode
+    let preset: StudioPreset
+}
+
+private enum StudioPreset {
+    case original
+    case fresh
+    case cream
+    case pink
+    case night
+
+    var title: String {
+        switch self {
+        case .original: return "原片"
+        case .fresh: return "清透"
+        case .cream: return "奶油"
+        case .pink: return "樱花"
+        case .night: return "夜色"
+        }
+    }
+}
+
+private enum StudioCropMode {
+    case original
+    case square
+    case portrait
+    case wide
+
+    var title: String {
+        switch self {
+        case .original: return "原比例"
+        case .square: return "1:1"
+        case .portrait: return "4:5"
+        case .wide: return "16:9"
+        }
+    }
+
+    var ratio: CGFloat {
+        switch self {
+        case .original: return 0
+        case .square: return 1
+        case .portrait: return 4.0 / 5.0
+        case .wide: return 16.0 / 9.0
+        }
+    }
+
+    var next: StudioCropMode {
+        switch self {
+        case .original: return .square
+        case .square: return .portrait
+        case .portrait: return .wide
+        case .wide: return .original
         }
     }
 }
@@ -3327,7 +4085,9 @@ private struct AlbumInfoSheet: View {
                 LabeledContent("文件大小", value: fileSizeText)
                 LabeledContent("文件名", value: url.lastPathComponent)
             }
-            .navigationTitle("媒体信息")
+            .scrollContentBackground(.hidden)
+            .background(Color(hex: 0xF4F8FC))
+            .navigationTitle("照片信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -3336,12 +4096,6 @@ private struct AlbumInfoSheet: View {
             }
         }
         .preferredColorScheme(.light)
-    }
-}
-
-private extension URL {
-    var isVideoMedia: Bool {
-        ["mov", "mp4"].contains(pathExtension.lowercased())
     }
 }
 
