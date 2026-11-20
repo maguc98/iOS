@@ -116,6 +116,34 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                             .zIndex(12)
                     }
+
+                    if isToolPanelExpanded {
+                        Group {
+                            switch activeTool {
+                            case .filters:
+                                filterPicker
+                            case .superResolution:
+                                superResolutionPicker
+                            case .autofocus:
+                                autofocusPicker
+                            }
+                        }
+                        .frame(width: width - 18, height: 82)
+                        .padding(5)
+                        .background {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .fill(Color.white.opacity(0.92))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                        .stroke(Color.white.opacity(0.98), lineWidth: 1)
+                                }
+                                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        .position(x: width / 2, y: height - 47)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(20)
+                    }
                 }
                 .frame(width: width, height: height)
                 .position(x: centerX, y: centerY)
@@ -157,24 +185,6 @@ struct CameraScreen: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     header
-                    if isToolPanelExpanded {
-                        Group {
-                            switch activeTool {
-                            case .filters:
-                                filterPicker
-                            case .superResolution:
-                                superResolutionPicker
-                            case .autofocus:
-                                autofocusPicker
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(maxHeight: 84)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .zIndex(30)
-                    }
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -188,7 +198,7 @@ struct CameraScreen: View {
                         .padding(.top, 10)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 10)
+                .padding(.top, 104)
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -223,6 +233,14 @@ struct CameraScreen: View {
         }
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
+        }
+        .onChange(of: camera.focusStatus) { _, status in
+            guard status == .focused || status == .unavailable else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    focusZonesVisible = false
+                }
+            }
         }
         .onAppear {
             camera.prepare()
@@ -612,27 +630,50 @@ struct CameraScreen: View {
             .disabled(camera.capturedImage == nil)
             .opacity(camera.capturedImage == nil ? 0.75 : 1)
 
-            Button(action: takePhoto) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: 0xFFE45E), Color(hex: 0xFF8A45), Color(hex: 0xFF72A6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            HStack(spacing: 12) {
+                Button(action: takePhoto) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(hex: 0xFFE45E), Color(hex: 0xFF8A45), Color(hex: 0xFF72A6)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 82, height: 82)
-                        .shadow(color: Color(hex: 0xFF8A45).opacity(0.38), radius: 18, y: 6)
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 64, height: 64)
-                    Circle()
-                        .stroke(Color(hex: 0xFF8A45).opacity(0.2), lineWidth: 1)
-                        .frame(width: 56, height: 56)
+                            .frame(width: 82, height: 82)
+                            .shadow(color: Color(hex: 0xFF8A45).opacity(0.38), radius: 18, y: 6)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 64, height: 64)
+                        Circle()
+                            .stroke(Color(hex: 0xFF8A45).opacity(0.2), lineWidth: 1)
+                            .frame(width: 56, height: 56)
+                    }
                 }
+                .buttonStyle(.plain)
+
+                Button(action: triggerAutofocus) {
+                    ZStack(alignment: .topTrailing) {
+                        Circle()
+                            .fill(Color.white.opacity(0.86))
+                            .frame(width: 42, height: 42)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x3D4352))
+                            .frame(width: 42, height: 42)
+                        Circle()
+                            .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xAAB3BE))
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 1.2))
+                            .offset(x: 1, y: -1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(camera.focusStatus == .focusing)
+                .accessibilityLabel("自动对焦")
             }
-            .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
 
             Button {
@@ -879,6 +920,11 @@ struct CameraScreen: View {
         }
         .tint(Color(hex: selectedPalette.accent))
         .padding(.vertical, 12)
+    }
+
+    private func triggerAutofocus() {
+        focusZonesVisible = true
+        camera.focus(at: CGPoint(x: 0.5, y: 0.5))
     }
 
     private func takePhoto() {
