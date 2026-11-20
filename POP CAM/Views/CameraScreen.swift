@@ -131,26 +131,13 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if activeTool == .autofocus {
-                        if camera.autofocusPoints.isEmpty {
-                            FocusReticle()
-                                .stroke(
-                                    Color(hex: 0x63F58B),
-                                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
-                                )
-                                .frame(width: 58, height: 58)
-                                .shadow(color: Color(hex: 0x40E878).opacity(0.58), radius: 5)
-                                .position(x: width / 2, y: height / 2)
-                                .transition(.scale(scale: 0.72).combined(with: .opacity))
-                                .allowsHitTesting(false)
-                        } else {
-                            MultiPointAutofocusOverlay(
-                                points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
-                            )
-                            .frame(width: width, height: height)
-                            .transition(.opacity)
-                            .allowsHitTesting(false)
-                        }
+                    if activeTool == .autofocus && !camera.autofocusPoints.isEmpty {
+                        MultiPointAutofocusOverlay(
+                            points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
+                        )
+                        .frame(width: width, height: height)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
                     }
                     if let manualFocusIndicatorPoint {
                         FocusReticle()

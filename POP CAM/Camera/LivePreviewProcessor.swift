@@ -83,7 +83,7 @@ private final class MultiPointAutofocusDetector {
     private let analysisHeight = 320
     private let columns = 12
     private let rows = 16
-    private let minimumEdgeScore = 2.8
+    private let minimumEdgeScore = 0.65
     private let minimumSpacing = 0.105
     private let edgeInsetX = 0.085
     private let edgeInsetY = 0.075
@@ -177,116 +177,54 @@ private final class MultiPointAutofocusDetector {
             filteredScores[index] = filteredScores[index] * 0.42 + rawScores[index] * 0.58
         }
 
-        let sortedScores = filteredScores.sorted()
-        let strongest = sortedScores.last ?? 0
+        let strongest = filteredScores.max() ?? 0
         guard strongest >= minimumEdgeScore else {
             previousLocations.removeAll(keepingCapacity: true)
             return []
         }
 
-        let positiveScores = filteredScores.filter { $0 > 0 }
-        let average = positiveScores.isEmpty ? 0 : positiveScores.reduce(0, +) / Double(positiveScores.count)
-        let variance = positiveScores.reduce(0) { $0 + pow($1 - average, 2) } / Double(max(1, positiveScores.count))
-        let deviation = sqrt(variance)
-        let threshold = max(minimumEdgeScore, max(average + deviation * 0.18, strongest * 0.16))
-
-        var candidates: [(id: Int, location: CGPoint, score: Double)] = []
-        for row in 1..<(rows - 1) {
-            for column in 1..<(columns - 1) {
-                let index = row * columns + column
-                let score = filteredScores[index]
-                guard score >= threshold else { continue }
-
-                let location = CGPoint(
-                    x: CGFloat(column) + 0.5,
-                    y: CGFloat(row) + 0.5
-                )
-                let normalizedX = location.x / CGFloat(columns)
-                let normalizedY = location.y / CGFloat(rows)
-
-                // Avoid rounded corners and controls near the viewfinder boundary.
-                guard normalizedX >= edgeInsetX,
-                      normalizedX <= 1 - edgeInsetX,
-                      normalizedY >= edgeInsetY,
-                      normalizedY <= 1 - edgeInsetY else { continue }
-
-                var isLocalMaximum = true
-                for neighborRow in (row - 1)...(row + 1) {
-                    for neighborColumn in (column - 1)...(column + 1) {
-                        if neighborRow == row && neighborColumn == column { continue }
-                        let neighborScore = filteredScores[neighborRow * columns + neighborColumn]
-                        if neighborScore > score * 1.035 {
-                            isLocalMaximum = false
-                        }
-                    }
-                }
-                guard isLocalMaximum else { continue }
-
-                candidates.append((
-                    id: index,
-                    location: CGPoint(x: normalizedX, y: normalizedY),
-                    score: score
-                ))
-            }
+        // Select multiple real detail-rich cells across the frame. The threshold
+        // adapts to scene contrast, while non-maximum spacing prevents clusters.
+        let threshold = max(minimumEdgeScore, strongest * 0.14)
+        let rankedIndices = filteredScores.indices.sorted {
+            filteredScores[$0] > filteredScores[$1]
         }
-
-        candidates.sort { $0.score > $1.score }
         var selected: [AutofocusPoint] = []
 
-        for candidate in candidates {
+        for index in rankedIndices {
+            let row = index / columns
+            let column = index % columns
+            guard row > 0, row < rows - 1, column > 0, column < columns - 1 else { continue }
+
+            let score = filteredScores[index]
+            guard score >= threshold else { break }
+
+            let normalizedX = (CGFloat(column) + 0.5) / CGFloat(columns)
+            let normalizedY = (CGFloat(row) + 0.5) / CGFloat(rows)
+            guard normalizedX >= edgeInsetX, normalizedX <= 1 - edgeInsetX,
+                  normalizedY >= edgeInsetY, normalizedY <= 1 - edgeInsetY else { continue }
+
+            let location = CGPoint(x: normalizedX, y: normalizedY)
             let separated = selected.allSatisfy {
-                hypot($0.location.x - candidate.location.x, $0.location.y - candidate.location.y) >= minimumSpacing
+                hypot($0.location.x - location.x, $0.location.y - location.y) >= 0.075
             }
             guard separated else { continue }
 
-            let previous = previousLocations[candidate.id]
+            let previous = previousLocations[index]
             let smoothedLocation: CGPoint
             if let previous {
                 smoothedLocation = CGPoint(
-                    x: previous.x * 0.38 + candidate.location.x * 0.62,
-                    y: previous.y * 0.38 + candidate.location.y * 0.62
+                    x: previous.x * 0.38 + location.x * 0.62,
+                    y: previous.y * 0.38 + location.y * 0.62
                 )
             } else {
-                smoothedLocation = candidate.location
+                smoothedLocation = location
             }
 
             selected.append(
-                AutofocusPoint(
-                    id: candidate.id,
-                    location: smoothedLocation,
-                    strength: CGFloat(candidate.score)
-                )
+                AutofocusPoint(id: index, location: smoothedLocation, strength: CGFloat(score))
             )
-            if selected.count == 8 { break }
-        }
-
-        if selected.isEmpty {
-            let fallbackThreshold = max(minimumEdgeScore, strongest * 0.22)
-            let rankedIndices = filteredScores.indices.sorted {
-                filteredScores[$0] > filteredScores[$1]
-            }
-            for index in rankedIndices {
-                let row = index / columns
-                let column = index % columns
-                guard row > 0, row < rows - 1, column > 0, column < columns - 1 else { continue }
-                let score = filteredScores[index]
-                guard score >= fallbackThreshold else { break }
-
-                let location = CGPoint(
-                    x: (CGFloat(column) + 0.5) / CGFloat(columns),
-                    y: (CGFloat(row) + 0.5) / CGFloat(rows)
-                )
-                guard location.x >= edgeInsetX, location.x <= 1 - edgeInsetX,
-                      location.y >= edgeInsetY, location.y <= 1 - edgeInsetY else { continue }
-                guard selected.allSatisfy({
-                    hypot($0.location.x - location.x, $0.location.y - location.y) >= minimumSpacing
-                }) else { continue }
-
-                selected.append(
-                    AutofocusPoint(id: index, location: location, strength: CGFloat(score))
-                )
-                if selected.count == 4 { break }
-            }
+            if selected.count == 9 { break }
         }
 
         previousLocations = Dictionary(
