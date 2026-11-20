@@ -21,6 +21,7 @@ struct CameraScreen: View {
     @AppStorage("popcam.stabilizationHUDEnabled") private var stabilizationHUDEnabled = true
     @AppStorage("popcam.stabilizationHUDX") private var stabilizationHUDX = 0.5
     @AppStorage("popcam.stabilizationHUDY") private var stabilizationHUDY = 0.20
+    @State private var stabilizationHUDDragOrigin: CGPoint?
     @State private var showGrid = false
     @State private var showLevel = false
     @State private var zoom: Double = 1
@@ -155,10 +156,15 @@ struct CameraScreen: View {
                         .gesture(
                             DragGesture(minimumDistance: 4)
                                 .onChanged { value in
-                                    let nextX = (width * stabilizationHUDX + value.translation.width) / width
-                                    let nextY = (height * stabilizationHUDY + value.translation.height) / height
-                                    stabilizationHUDX = min(max(nextX, 0.12), 0.88)
-                                    stabilizationHUDY = min(max(nextY, 0.12), 0.88)
+                                    if stabilizationHUDDragOrigin == nil {
+                                        stabilizationHUDDragOrigin = CGPoint(x: stabilizationHUDX, y: stabilizationHUDY)
+                                    }
+                                    let origin = stabilizationHUDDragOrigin ?? CGPoint(x: stabilizationHUDX, y: stabilizationHUDY)
+                                    stabilizationHUDX = min(max(origin.x + value.translation.width / width, 0.12), 0.88)
+                                    stabilizationHUDY = min(max(origin.y + value.translation.height / height, 0.12), 0.88)
+                                }
+                                .onEnded { _ in
+                                    stabilizationHUDDragOrigin = nil
                                 }
                         )
                         .zIndex(18)
@@ -1758,7 +1764,7 @@ private struct StabilizationPreviewHUD: View {
                         Circle()
                             .fill(isStabilizationActive ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E))
                             .frame(width: 5, height: 5)
-                        Text(isStabilizationActive ? "STABILIZED VIEW" : "STABILIZATION")
+                        Text(isStabilizationActive ? "EIS ENABLED" : "EIS UNAVAILABLE")
                             .font(.system(size: 6, weight: .heavy, design: .rounded))
                             .tracking(0.6)
                         Spacer(minLength: 0)
@@ -1774,7 +1780,7 @@ private struct StabilizationPreviewHUD: View {
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         }
-        .accessibilityLabel("防抖取景监视器，显示实时画面与估算的稳定取景范围")
+        .accessibilityLabel("防抖取景监视器，显示实时预览与估算的稳定取景范围")
     }
 }
 
