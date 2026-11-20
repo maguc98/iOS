@@ -24,6 +24,9 @@ final class CameraService: ObservableObject {
     @Published var zoomFactor: CGFloat = 1
     @Published var exposureBias: Float = 0
     @Published var isExposureFocusLocked = false
+    @Published private(set) var isManualFocusEnabled = false
+    @Published private(set) var supportsManualFocus = false
+    @Published private(set) var manualLensPosition: Float = 0.5
     @Published var focusStatus: CameraFocusStatus = .idle
     @Published private(set) var autofocusPoints: [AutofocusPoint] = []
     @Published var capturedImage: UIImage?
@@ -111,6 +114,11 @@ final class CameraService: ObservableObject {
             self.session.addInput(input)
             self.activeInput = input
             let initialDisplayZoom = self.setDefaultZoom(for: device)
+            DispatchQueue.main.async {
+                self.supportsManualFocus = device.isLockingFocusWithCustomLensPositionSupported
+                self.manualLensPosition = device.lensPosition
+                self.isManualFocusEnabled = false
+            }
 
             // Keep the camera in continuous AF/AE by default, as in a live-viewfinder camera.
             do {
@@ -857,6 +865,53 @@ final class CameraService: ObservableObject {
         }
     }
 
+    func setManualFocusEnabled(_ enabled: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.activeInput?.device else { return }
+            guard device.isLockingFocusWithCustomLensPositionSupported else {
+                DispatchQueue.main.async {
+                    self.supportsManualFocus = false
+                    self.errorMessage = "当前摄像头不支持手动对焦。"
+                }
+                return
+            }
+            do {
+                try device.lockForConfiguration()
+                if enabled {
+                    let position = min(max(self.manualLensPosition, 0), 1)
+                    device.setFocusModeLocked(lensPosition: position, completionHandler: nil)
+                } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                    device.isSubjectAreaChangeMonitoringEnabled = true
+                }
+                device.unlockForConfiguration()
+                DispatchQueue.main.async {
+                    self.isManualFocusEnabled = enabled
+                    self.isExposureFocusLocked = false
+                    self.manualLensPosition = device.lensPosition
+                }
+            } catch {
+                DispatchQueue.main.async { self.errorMessage = "暂时无法切换对焦模式。" }
+            }
+        }
+    }
+
+    func setManualLensPosition(_ value: Float) {
+        let position = min(max(value, 0), 1)
+        DispatchQueue.main.async { self.manualLensPosition = position }
+        sessionQueue.async { [weak self] in
+            guard let self,
+                  let device = self.activeInput?.device,
+                  device.isLockingFocusWithCustomLensPositionSupported else { return }
+            do {
+                try device.lockForConfiguration()
+                device.setFocusModeLocked(lensPosition: position, completionHandler: nil)
+                device.unlockForConfiguration()
+            } catch {
+                DispatchQueue.main.async { self.errorMessage = "暂时无法调整手动对焦。" }
+            }
+        }
+    }
     func setExposureFocusLocked(_ locked: Bool) {
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
