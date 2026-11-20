@@ -22,6 +22,7 @@ struct CameraScreen: View {
     @State private var zoom: Double = 1
     @State private var pinchStartZoom: CGFloat?
     @State private var zoomDragStartValue: CGFloat?
+    @State private var isZoomDragActive = false
     @State private var exposure: Double = 0
     @State private var manualFocusIndicatorPoint: CGPoint?
     @State private var manualFocusIndicatorID = 0
@@ -198,8 +199,11 @@ struct CameraScreen: View {
                             if pinchStartZoom == nil {
                                 pinchStartZoom = CGFloat(zoom)
                             }
-                            let start = pinchStartZoom ?? CGFloat(zoom)
-                            applyZoom(start * pow(value.magnification, 1.22))
+                            let start = Double(pinchStartZoom ?? CGFloat(zoom))
+                            let startStops = log2(max(0.5, start))
+                            let pinchStops = log2(max(0.01, Double(value.magnification))) * 1.35
+                            let targetZoom = CGFloat(pow(2.0, startStops + pinchStops))
+                            applyZoom(targetZoom, animated: false)
                         }
                         .onEnded { _ in
                             pinchStartZoom = nil
@@ -677,27 +681,105 @@ struct CameraScreen: View {
         .background(Color.white.opacity(0.76), in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
+        .overlay(alignment: .top) {
+            if isZoomDragActive {
+                zoomDragIndicator
+                    .offset(y: -55)
+                    .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.94)))
+            }
+        }
         .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.28)
+            LongPressGesture(minimumDuration: 0.32)
                 .sequenced(before: DragGesture(minimumDistance: 0))
                 .onChanged { value in
                     guard case .second(true, let drag?) = value else { return }
                     if zoomDragStartValue == nil {
                         zoomDragStartValue = CGFloat(zoom)
                     }
-                    let start = zoomDragStartValue ?? CGFloat(zoom)
-                    let multiplier = pow(10, drag.translation.width / 260)
-                    applyZoom(start * multiplier)
+                    if !isZoomDragActive {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                            isZoomDragActive = true
+                        }
+                    }
+
+                    // Move through logarithmic zoom stops: equal finger travel
+                    // produces equal proportional zoom changes, like the native
+                    // camera's continuous zoom control.
+                    let startStops = log2(max(0.5, Double(zoomDragStartValue ?? CGFloat(zoom))))
+                    let dragStops = Double(drag.translation.width) / 155.0
+                    let targetZoom = CGFloat(pow(2.0, startStops + dragStops))
+                    applyZoom(targetZoom, animated: false)
                 }
                 .onEnded { _ in
                     zoomDragStartValue = nil
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isZoomDragActive = false
+                    }
                 }
         )
     }
 
+    private var zoomDragIndicator: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10, weight: .bold))
+                Text("ZOOM")
+                    .font(.system(size: 8, weight: .heavy, design: .rounded))
+                    .tracking(1.2)
+                    .opacity(0.65)
+                Text(String(format: "%.2f×", zoom))
+                    .font(.system(size: 16, weight: .black, design: .rounded))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+
+            GeometryReader { geometry in
+                ZStack {
+                    Capsule()
+                        .fill(Color(hex: 0xAAB5C3).opacity(0.46))
+                        .frame(height: 3)
+                        .position(x: geometry.size.width / 2, y: 4)
+
+                    ForEach([0.5, 1.0, 2.0, 5.0, 10.0], id: \.self) { mark in
+                        Circle()
+                            .fill(Color(hex: 0x7E8998).opacity(0.78))
+                            .frame(width: 4, height: 4)
+                            .position(x: zoomTrackPosition(mark, width: geometry.size.width), y: 4)
+                    }
+
+                    Circle()
+                        .fill(Color(hex: 0xF16F89))
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                        .shadow(color: Color(hex: 0xF16F89).opacity(0.42), radius: 4)
+                        .position(x: zoomTrackPosition(zoom, width: geometry.size.width), y: 4)
+                }
+            }
+            .frame(width: 126, height: 8)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 9)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(Color.white.opacity(0.94), lineWidth: 1)
+        )
+        .shadow(color: Color(hex: 0x667386).opacity(0.18), radius: 10, y: 4)
+        .allowsHitTesting(false)
+    }
+
+    private func zoomTrackPosition(_ value: Double, width: CGFloat) -> CGFloat {
+        let bounded = min(max(value, 0.5), 10)
+        let lower = log2(0.5)
+        let upper = log2(10.0)
+        let progress = (log2(bounded) - lower) / (upper - lower)
+        return CGFloat(progress) * width
+    }
+
     private func zoomButton(_ value: Double) -> some View {
         Button {
-            applyZoom(CGFloat(value))
+            applyZoom(CGFloat(value), animated: true)
         } label: {
             Text(value == 0.5 ? "0.5×" : "\(Int(value))×")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -713,10 +795,10 @@ struct CameraScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func applyZoom(_ value: CGFloat) {
+    private func applyZoom(_ value: CGFloat, animated: Bool = false) {
         let clamped = min(max(value, 0.5), 10)
         zoom = Double(clamped)
-        camera.setZoom(clamped)
+        camera.setZoom(clamped, animated: animated)
     }
 
     private var shutterControls: some View {
