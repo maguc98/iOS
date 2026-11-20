@@ -21,6 +21,8 @@ struct CameraScreen: View {
     @State private var showLevel = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
+    @State private var manualFocusIndicatorPoint: CGPoint?
+    @State private var manualFocusIndicatorID = 0
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "60"
     @State private var hdrEnabled = true
@@ -92,6 +94,18 @@ struct CameraScreen: View {
                             }
                             camera.setAutofocusVisualizationEnabled(false)
                         }
+
+                        manualFocusIndicatorID += 1
+                        let indicatorID = manualFocusIndicatorID
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
+                            manualFocusIndicatorPoint = location
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) {
+                            guard manualFocusIndicatorID == indicatorID else { return }
+                            withAnimation(.easeOut(duration: 0.28)) {
+                                manualFocusIndicatorPoint = nil
+                            }
+                        }
                         camera.focus(at: normalizedPoint)
                     }
 
@@ -117,14 +131,39 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if activeTool == .autofocus && !camera.autofocusPoints.isEmpty {
-                        MultiPointAutofocusOverlay(
-                            points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
-                        )
-                        .frame(width: width, height: height)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
-                        .zIndex(12)
+                    if activeTool == .autofocus {
+                        if camera.autofocusPoints.isEmpty {
+                            FocusReticle()
+                                .stroke(
+                                    Color(hex: 0x63F58B),
+                                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+                                )
+                                .frame(width: 58, height: 58)
+                                .shadow(color: Color(hex: 0x40E878).opacity(0.58), radius: 5)
+                                .position(x: width / 2, y: height / 2)
+                                .transition(.scale(scale: 0.72).combined(with: .opacity))
+                                .allowsHitTesting(false)
+                        } else {
+                            MultiPointAutofocusOverlay(
+                                points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
+                            )
+                            .frame(width: width, height: height)
+                            .transition(.opacity)
+                            .allowsHitTesting(false)
+                        }
+                    }
+                    if let manualFocusIndicatorPoint {
+                        FocusReticle()
+                            .stroke(
+                                Color(hex: 0xFFE45E),
+                                style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
+                            )
+                            .frame(width: 58, height: 58)
+                            .shadow(color: .black.opacity(0.28), radius: 3)
+                            .position(manualFocusIndicatorPoint)
+                            .transition(.scale(scale: 0.70).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                            .zIndex(13)
                     }
 
                     if isToolPanelExpanded {
@@ -698,7 +737,7 @@ struct CameraScreen: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("自动对焦")
+                    .accessibilityLabel(activeTool == .autofocus ? "关闭自动对焦" : "开启自动对焦")
                 }
 
                 HStack(spacing: 26) {

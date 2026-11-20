@@ -517,6 +517,11 @@ final class CameraService: ObservableObject {
             x: min(max(point.x, 0), 1),
             y: min(max(point.y, 0), 1)
         )
+        // AVCaptureDevice focus/exposure POI always uses the unrotated
+        // landscape sensor coordinate system (home button on the right).
+        // The viewfinder is portrait, so rotate the tap point into sensor space.
+        let devicePoint = CGPoint(x: normalized.y, y: 1 - normalized.x)
+
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
             do {
@@ -524,10 +529,10 @@ final class CameraService: ObservableObject {
                 defer { device.unlockForConfiguration() }
 
                 if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = normalized
+                    device.focusPointOfInterest = devicePoint
                 }
                 if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = normalized
+                    device.exposurePointOfInterest = devicePoint
                 }
 
                 let canAutofocus: Bool

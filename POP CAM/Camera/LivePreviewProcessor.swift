@@ -83,7 +83,7 @@ private final class MultiPointAutofocusDetector {
     private let analysisHeight = 320
     private let columns = 12
     private let rows = 16
-    private let minimumEdgeScore = 9.0
+    private let minimumEdgeScore = 2.8
     private let minimumSpacing = 0.105
     private let edgeInsetX = 0.085
     private let edgeInsetY = 0.075
@@ -188,7 +188,7 @@ private final class MultiPointAutofocusDetector {
         let average = positiveScores.isEmpty ? 0 : positiveScores.reduce(0, +) / Double(positiveScores.count)
         let variance = positiveScores.reduce(0) { $0 + pow($1 - average, 2) } / Double(max(1, positiveScores.count))
         let deviation = sqrt(variance)
-        let threshold = max(minimumEdgeScore, max(average + deviation * 0.42, strongest * 0.28))
+        let threshold = max(minimumEdgeScore, max(average + deviation * 0.18, strongest * 0.16))
 
         var candidates: [(id: Int, location: CGPoint, score: Double)] = []
         for row in 1..<(rows - 1) {
@@ -257,7 +257,36 @@ private final class MultiPointAutofocusDetector {
                     strength: CGFloat(candidate.score)
                 )
             )
-            if selected.count == 10 { break }
+            if selected.count == 8 { break }
+        }
+
+        if selected.isEmpty {
+            let fallbackThreshold = max(minimumEdgeScore, strongest * 0.22)
+            let rankedIndices = filteredScores.indices.sorted {
+                filteredScores[$0] > filteredScores[$1]
+            }
+            for index in rankedIndices {
+                let row = index / columns
+                let column = index % columns
+                guard row > 0, row < rows - 1, column > 0, column < columns - 1 else { continue }
+                let score = filteredScores[index]
+                guard score >= fallbackThreshold else { break }
+
+                let location = CGPoint(
+                    x: (CGFloat(column) + 0.5) / CGFloat(columns),
+                    y: (CGFloat(row) + 0.5) / CGFloat(rows)
+                )
+                guard location.x >= edgeInsetX, location.x <= 1 - edgeInsetX,
+                      location.y >= edgeInsetY, location.y <= 1 - edgeInsetY else { continue }
+                guard selected.allSatisfy({
+                    hypot($0.location.x - location.x, $0.location.y - location.y) >= minimumSpacing
+                }) else { continue }
+
+                selected.append(
+                    AutofocusPoint(id: index, location: location, strength: CGFloat(score))
+                )
+                if selected.count == 4 { break }
+            }
         }
 
         previousLocations = Dictionary(
