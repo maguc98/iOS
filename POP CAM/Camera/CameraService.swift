@@ -348,6 +348,8 @@ final class CameraService: ObservableObject {
             return false
         }
 
+        session.beginConfiguration()
+        var configurationError: Error?
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
@@ -363,18 +365,27 @@ final class CameraService: ObservableObject {
                 device.isAutoVideoFrameRateEnabled = false
             }
 
-            let enableHDR = hdrEnabled && chosen.supportsHDR
-            device.automaticallyAdjustsVideoHDREnabled = false
-            if device.isVideoHDREnabled != enableHDR {
-                device.isVideoHDREnabled = enableHDR
+            // Only write the HDR property when the selected format advertises
+            // HDR support. Setting isVideoHDREnabled on a non-HDR format can
+            // raise an Objective-C exception even when the requested value is false.
+            if chosen.supportsHDR {
+                device.automaticallyAdjustsVideoHDREnabled = false
+                if device.isVideoHDREnabled != hdrEnabled {
+                    device.isVideoHDREnabled = hdrEnabled
+                }
             }
 
             device.activeVideoMinFrameDuration = chosen.frameDuration
             device.activeVideoMaxFrameDuration = chosen.frameDuration
         } catch {
+            configurationError = error
+        }
+        session.commitConfiguration()
+
+        if let configurationError {
             DispatchQueue.main.async {
                 self.isVideoConfigurationInProgress = false
-                self.errorMessage = "无法应用视频参数：\(error.localizedDescription)"
+                self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
             }
             return false
         }
@@ -383,7 +394,7 @@ final class CameraService: ObservableObject {
             ? "4K"
             : "1080P"
         let actualFrameRate = Int((1.0 / CMTimeGetSeconds(chosen.frameDuration)).rounded())
-        let actualHDR = hdrEnabled && chosen.supportsHDR && device.isVideoHDREnabled
+        let actualHDR = chosen.supportsHDR && device.isVideoHDREnabled
         let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
