@@ -40,6 +40,14 @@ struct CameraScreen: View {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
     }
 
+    private func updateMotionMonitoring() {
+        if showLevel || stabilizationHUDEnabled {
+            levelMonitor.start()
+        } else {
+            levelMonitor.stop()
+        }
+    }
+
     var body: some View {
         ZStack {
             // Soft macaron canvas fills everything outside the live viewfinder.
@@ -57,7 +65,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.475
+                let centerY = previewGeometry.size.height * 0.482
 
                 ZStack {
                     Group {
@@ -146,6 +154,9 @@ struct CameraScreen: View {
                         StabilizationPreviewHUD(
                             image: frame,
                             rollDegrees: levelMonitor.rollDegrees,
+                            pitchDegrees: levelMonitor.stabilizationPitchDegrees,
+                            yawDegrees: levelMonitor.stabilizationYawDegrees,
+                            relativeRollDegrees: levelMonitor.stabilizationRollDegrees,
                             isStabilizationActive: camera.isVideoStabilizationActive
                         )
                         .frame(width: 126, height: 104)
@@ -289,7 +300,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.475
+                                y: maskGeometry.size.height * 0.482
                             )
                     }
                 }
@@ -309,7 +320,7 @@ struct CameraScreen: View {
                 VStack(spacing: 0) {
                     header
                     captureFormatBar
-                        .padding(.top, 8)
+                        .padding(.top, 4)
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -378,7 +389,7 @@ struct CameraScreen: View {
             camera.prepare()
             camera.setAutofocusVisualizationEnabled(activeTool == .autofocus && !camera.isExposureFocusLocked)
             camera.setVideoStabilizationEnabled(videoStabilizationEnabled)
-            if showLevel || stabilizationHUDEnabled { levelMonitor.start() }
+            updateMotionMonitoring()
         }
         .onChange(of: selectedVideoResolution) { _, _ in
             guard !isSyncingVideoControls else { return }
@@ -441,8 +452,11 @@ struct CameraScreen: View {
                 isSyncingVideoControls = false
             }
         }
-        .onChange(of: showLevel) { _, enabled in
-            if enabled { levelMonitor.start() } else { levelMonitor.stop() }
+        .onChange(of: showLevel) { _, _ in
+            updateMotionMonitoring()
+        }
+        .onChange(of: stabilizationHUDEnabled) { _, _ in
+            updateMotionMonitoring()
         }
         .onDisappear { levelMonitor.stop(); camera.setAutofocusVisualizationEnabled(false) }
         .alert("POP CAM", isPresented: Binding(
@@ -613,12 +627,10 @@ struct CameraScreen: View {
             .foregroundStyle(Color(hex: 0x3D4352))
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 36)
-            .background(Color.white.opacity(0.90), in: Capsule())
-            .overlay(Capsule().stroke(Color.white, lineWidth: 1))
+            .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(Color.white, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .padding(6)
-        .background(Color.white.opacity(0.72), in: Capsule())
     }
 
     private var filterPicker: some View {
@@ -647,7 +659,7 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white, lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 2)
     }
@@ -1067,7 +1079,7 @@ struct CameraScreen: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.10), radius: 8, y: 2)
@@ -1731,10 +1743,23 @@ private struct HeaderIcon: View {
 private struct StabilizationPreviewHUD: View {
     let image: CGImage
     let rollDegrees: Double
+    let pitchDegrees: Double
+    let yawDegrees: Double
+    let relativeRollDegrees: Double
     let isStabilizationActive: Bool
 
-    private var horizontalShift: CGFloat {
-        CGFloat(min(max(-rollDegrees * 0.34, -13), 13))
+    // The green frame is an estimated steady crop area. It reacts to the
+    // device's motion relative to the orientation at which the monitor started.
+    // It is intentionally not presented as AVFoundation's actual EIS crop data.
+    private var estimatedCropOffset: CGSize {
+        CGSize(
+            width: min(max(-yawDegrees * 1.25, -15), 15),
+            height: min(max(pitchDegrees * 1.25, -12), 12)
+        )
+    }
+
+    private var estimatedCropRotation: Double {
+        min(max(-relativeRollDegrees * 0.45, -7), 7)
     }
 
     var body: some View {
@@ -1744,7 +1769,6 @@ private struct StabilizationPreviewHUD: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height)
-                    .offset(x: horizontalShift)
                     .clipped()
                     .overlay(Color.black.opacity(0.24))
 
@@ -1757,16 +1781,19 @@ private struct StabilizationPreviewHUD: View {
                         width: geometry.size.width * 0.78,
                         height: geometry.size.height * 0.78
                     )
-                    .animation(.interactiveSpring(response: 0.20, dampingFraction: 0.82), value: rollDegrees)
+                    .offset(estimatedCropOffset)
+                    .rotationEffect(.degrees(estimatedCropRotation))
+                    .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.84), value: estimatedCropOffset)
+                    .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.84), value: estimatedCropRotation)
 
                 VStack {
                     HStack(spacing: 4) {
                         Circle()
                             .fill(isStabilizationActive ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E))
                             .frame(width: 5, height: 5)
-                        Text(isStabilizationActive ? "EIS ENABLED" : "EIS UNAVAILABLE")
+                        Text(isStabilizationActive ? "EIS · EST. AREA" : "EIS UNAVAILABLE")
                             .font(.system(size: 6, weight: .heavy, design: .rounded))
-                            .tracking(0.6)
+                            .tracking(0.5)
                         Spacer(minLength: 0)
                     }
                     Spacer()
@@ -1780,27 +1807,75 @@ private struct StabilizationPreviewHUD: View {
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         }
-        .accessibilityLabel("防抖取景监视器，显示实时预览与估算的稳定取景范围")
+        .accessibilityLabel("防抖取景监视器，绿色框根据设备姿态动态移动，表示估算的稳定取景范围")
     }
 }
 
 @MainActor
 private final class CameraLevelMonitor: ObservableObject {
     @Published private(set) var rollDegrees: Double = 0
+    @Published private(set) var stabilizationPitchDegrees: Double = 0
+    @Published private(set) var stabilizationYawDegrees: Double = 0
+    @Published private(set) var stabilizationRollDegrees: Double = 0
+
     private let manager = CMMotionManager()
+    private var referenceAttitude: CMAttitude?
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
-        manager.deviceMotionUpdateInterval = 1.0 / 30.0
-        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-            guard let motion else { return }
-            self?.rollDegrees = motion.attitude.roll * 180 / .pi
+        referenceAttitude = nil
+        manager.deviceMotionUpdateInterval = 1.0 / 60.0
+
+        let availableFrames = CMMotionManager.availableAttitudeReferenceFrames()
+        let referenceFrame: CMAttitudeReferenceFrame =
+            availableFrames.contains(.xArbitraryCorrectedZVertical)
+                ? .xArbitraryCorrectedZVertical
+                : .xArbitraryZVertical
+
+        manager.startDeviceMotionUpdates(using: referenceFrame, to: .main) { [weak self] motion, _ in
+            guard let self, let motion else { return }
+
+            let absoluteRoll = Self.degrees(motion.attitude.roll)
+            self.rollDegrees += (absoluteRoll - self.rollDegrees) * 0.28
+
+            guard let reference = self.referenceAttitude else {
+                self.referenceAttitude = motion.attitude.copy() as? CMAttitude
+                self.stabilizationPitchDegrees = 0
+                self.stabilizationYawDegrees = 0
+                self.stabilizationRollDegrees = 0
+                return
+            }
+
+            let relative = motion.attitude.copy() as! CMAttitude
+            relative.multiply(byInverseOf: reference)
+
+            let pitch = Self.wrappedDegrees(relative.pitch)
+            let yaw = Self.wrappedDegrees(relative.yaw)
+            let roll = Self.wrappedDegrees(relative.roll)
+
+            // Low-pass the pose deltas so the crop guide follows motion smoothly
+            // instead of jittering with every individual sensor sample.
+            self.stabilizationPitchDegrees += (pitch - self.stabilizationPitchDegrees) * 0.32
+            self.stabilizationYawDegrees += (yaw - self.stabilizationYawDegrees) * 0.32
+            self.stabilizationRollDegrees += (roll - self.stabilizationRollDegrees) * 0.32
         }
     }
 
     func stop() {
         guard manager.isDeviceMotionActive else { return }
         manager.stopDeviceMotionUpdates()
+        referenceAttitude = nil
+        stabilizationPitchDegrees = 0
+        stabilizationYawDegrees = 0
+        stabilizationRollDegrees = 0
+    }
+
+    private static func degrees(_ radians: Double) -> Double {
+        radians * 180 / .pi
+    }
+
+    private static func wrappedDegrees(_ radians: Double) -> Double {
+        (degrees(radians) + 540).truncatingRemainder(dividingBy: 360) - 180
     }
 }
 
