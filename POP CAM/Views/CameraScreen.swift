@@ -1154,7 +1154,20 @@ struct CameraScreen: View {
                     setCaptureBarMode(.level)
                 }
             }
-            .padding(.horizontal, 1)
+            .padding(.horizontal, 12)
+        }
+        .contentMargins(.horizontal, 10, for: .scrollContent)
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.035),
+                    .init(color: .black, location: 0.965),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
         }
     }
 
@@ -1284,46 +1297,48 @@ struct CameraScreen: View {
     private var focusAdjustmentControl: some View {
         GeometryReader { geometry in
             let compact = geometry.size.width < 350
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 captureBarBackButton()
                 if !compact {
                     Text("对焦")
                         .font(.system(size: 11, weight: .heavy, design: .rounded))
                         .foregroundStyle(Color(hex: 0x596779))
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
                 Button {
+                    camera.setManualFocusEnabled(false)
                     camera.setExposureFocusLocked(false)
                     camera.setAutofocusVisualizationEnabled(false)
                 } label: {
                     Text("自动")
                         .font(.system(size: 10, weight: .heavy, design: .rounded))
-                        .foregroundStyle(camera.isExposureFocusLocked ? Color(hex: 0x66778A) : Color(hex: 0x3D4352))
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background(camera.isExposureFocusLocked ? Color(hex: 0xF0F5FA) : Color(hex: 0xDDF2E5), in: Capsule())
+                        .foregroundStyle(camera.isManualFocusEnabled ? Color(hex: 0x66778A) : Color(hex: 0x3D4352))
+                        .padding(.horizontal, 9)
+                        .frame(height: 29)
+                        .background(camera.isManualFocusEnabled ? Color(hex: 0xF0F5FA) : Color(hex: 0xDDF2E5), in: Capsule())
                 }
                 .buttonStyle(.plain)
-                Spacer(minLength: 2)
                 Button {
-                    camera.setExposureFocusLocked(!camera.isExposureFocusLocked)
+                    camera.setManualFocusEnabled(true)
                     camera.setAutofocusVisualizationEnabled(false)
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: camera.isExposureFocusLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 10, weight: .bold))
-                        Text(camera.isExposureFocusLocked ? "已锁定" : "锁定")
-                            .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    }
-                    .foregroundStyle(Color(hex: 0x3D4352))
-                    .padding(.horizontal, 11)
-                    .frame(height: 30)
-                    .background(camera.isExposureFocusLocked ? Color(hex: 0xFFF0B8) : Color(hex: 0xF0F5FA), in: Capsule())
+                    Text("手动")
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundStyle(camera.isManualFocusEnabled ? Color(hex: 0x3D4352) : Color(hex: 0x66778A))
+                        .padding(.horizontal, 9)
+                        .frame(height: 29)
+                        .background(camera.isManualFocusEnabled ? Color(hex: 0xDCEEFF) : Color(hex: 0xF0F5FA), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                Slider(value: Binding(get: { Double(camera.manualLensPosition) }, set: { camera.setManualLensPosition(Float($0)) }), in: 0...1)
+                    .tint(Color(hex: 0xFFE45E))
+                    .disabled(!camera.isManualFocusEnabled || !camera.supportsManualFocus)
+                    .frame(minWidth: 54)
+                Text(String(format: "%.0f", camera.manualLensPosition * 100))
+                    .font(.system(size: 9, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(camera.isManualFocusEnabled ? Color(hex: 0x3D4352) : Color(hex: 0xA0A8B4))
+                    .frame(width: 25)
             }
             .frame(height: 34)
-            .animation(.easeInOut(duration: 0.20), value: compact)
         }
         .frame(height: 34)
     }
