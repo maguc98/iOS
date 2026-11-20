@@ -249,8 +249,11 @@ final class CameraService: ObservableObject {
                 actualFPS: actualFPS
             )
         }.sorted { lhs, rhs in
-            if hdrEnabled && lhs.supportsHDR != rhs.supportsHDR {
-                return lhs.supportsHDR && !rhs.supportsHDR
+            // HDR on: choose an HDR-capable format first.
+            // HDR off: choose an SDR format first so the device can turn HDR off
+            // as part of its active-format change without an unsafe manual write.
+            if lhs.supportsHDR != rhs.supportsHDR {
+                return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
             }
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
@@ -281,22 +284,16 @@ final class CameraService: ObservableObject {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
 
-            if #available(iOS 18.0, *) {
-                device.isAutoVideoFrameRateEnabled = false
-            }
-            device.automaticallyAdjustsVideoHDREnabled = false
             if device.activeFormat !== chosen.format {
                 device.activeFormat = chosen.format
             }
 
+            // Setting a new active format resets automatic frame-rate handling.
+            // Keep HDR auto-management enabled and let AVFoundation decide the
+            // actual HDR stream state for the selected supported format.
+            device.automaticallyAdjustsVideoHDREnabled = true
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
-
-            if chosen.format.isVideoHDRSupported {
-                device.isVideoHDREnabled = useHDR
-            } else if device.isVideoHDREnabled {
-                device.isVideoHDREnabled = false
-            }
         } catch {
             configurationError = error
         }
@@ -314,20 +311,21 @@ final class CameraService: ObservableObject {
             ? "4K"
             : "1080P"
         let actualFrameRate = Int(chosen.actualFPS.rounded())
-        let description = "\(actualResolution) · \(actualFrameRate) FPS" + (useHDR ? " · HDR" : "")
+        let actualHDR = chosen.format.isVideoHDRSupported && device.isVideoHDREnabled
+        let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
             self.isVideoConfigurationInProgress = false
             self.appliedResolution = actualResolution
             self.appliedFrameRate = actualFrameRate
-            self.appliedHDR = useHDR
+            self.appliedHDR = actualHDR
             self.appliedVideoDescription = description
             self.videoConfigurationRevision &+= 1
 
             let needsFallback =
                 actualResolution != requestedResolution ||
                 actualFrameRate != Int(requestedFPS) ||
-                useHDR != hdrEnabled
+                actualHDR != hdrEnabled
 
             if needsFallback {
                 self.errorMessage = "设备不支持所选组合，已自动调整为 \(description)。"

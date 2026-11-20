@@ -273,8 +273,11 @@ struct CameraScreen: View {
             camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
         }
         .onChange(of: camera.isReady) { _, ready in
-            if ready {
-                camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+            // Keep launch on the camera's native safe format. The selected
+            // recording format is applied when the user changes a format
+            // control or starts recording.
+            if !ready {
+                camera.setAutofocusVisualizationEnabled(false)
             }
         }
         .onChange(of: camera.videoConfigurationRevision) { _, _ in
