@@ -17,6 +17,10 @@ struct CameraScreen: View {
     @State private var isToolPanelExpanded = false
     @AppStorage("popcam.superResolutionEnabled") private var superResolutionEnabled = false
     @AppStorage("popcam.superResolutionScale") private var superResolutionScale = 2
+    @AppStorage("popcam.videoStabilizationEnabled") private var videoStabilizationEnabled = true
+    @AppStorage("popcam.stabilizationHUDEnabled") private var stabilizationHUDEnabled = true
+    @AppStorage("popcam.stabilizationHUDX") private var stabilizationHUDX = 0.5
+    @AppStorage("popcam.stabilizationHUDY") private var stabilizationHUDY = 0.20
     @State private var showGrid = false
     @State private var showLevel = false
     @State private var zoom: Double = 1
@@ -137,6 +141,29 @@ struct CameraScreen: View {
                         .allowsHitTesting(false)
                     }
 
+                    if stabilizationHUDEnabled, let frame = camera.previewImage {
+                        StabilizationPreviewHUD(
+                            image: frame,
+                            rollDegrees: levelMonitor.rollDegrees,
+                            isStabilizationActive: camera.isVideoStabilizationActive
+                        )
+                        .frame(width: 126, height: 104)
+                        .position(
+                            x: min(max(width * stabilizationHUDX, 70), width - 70),
+                            y: min(max(height * stabilizationHUDY, 58), height - 58)
+                        )
+                        .gesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in
+                                    let nextX = (width * stabilizationHUDX + value.translation.width) / width
+                                    let nextY = (height * stabilizationHUDY + value.translation.height) / height
+                                    stabilizationHUDX = min(max(nextX, 0.12), 0.88)
+                                    stabilizationHUDY = min(max(nextY, 0.12), 0.88)
+                                }
+                        )
+                        .zIndex(18)
+                    }
+
                     if showLevel {
                         levelIndicator
                             .position(x: width / 2, y: height * 0.13)
@@ -188,7 +215,7 @@ struct CameraScreen: View {
                                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .position(x: width / 2, y: height - 68)
+                        .position(x: width / 2, y: height - 55)
                         .transition(
                             .asymmetric(
                                 insertion: .scale(scale: 0.94, anchor: .bottom)
@@ -344,7 +371,8 @@ struct CameraScreen: View {
         .onAppear {
             camera.prepare()
             camera.setAutofocusVisualizationEnabled(activeTool == .autofocus && !camera.isExposureFocusLocked)
-            if showLevel { levelMonitor.start() }
+            camera.setVideoStabilizationEnabled(videoStabilizationEnabled)
+            if showLevel || stabilizationHUDEnabled { levelMonitor.start() }
         }
         .onChange(of: selectedVideoResolution) { _, _ in
             guard !isSyncingVideoControls else { return }
@@ -1189,6 +1217,27 @@ struct CameraScreen: View {
                     )
                     Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
                     settingToggle(
+                        title: "视频防抖",
+                        subtitle: "启用相机支持的实时防抖，并应用到录像",
+                        symbol: "viewfinder",
+                        isOn: $videoStabilizationEnabled
+                    )
+                    .onChange(of: videoStabilizationEnabled) { _, enabled in
+                        camera.setVideoStabilizationEnabled(enabled)
+                    }
+                    Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
+                    settingToggle(
+                        title: "防抖取景监视器",
+                        subtitle: "在取景器内显示原始画面与稳定取景范围，可拖动位置",
+                        symbol: "rectangle.inset.filled",
+                        isOn: $stabilizationHUDEnabled
+                    )
+                    .onChange(of: stabilizationHUDEnabled) { _, enabled in
+                        if enabled { levelMonitor.start() }
+                        else if !showLevel { levelMonitor.stop() }
+                    }
+                    Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
+                    settingToggle(
                         title: "锁定对焦与曝光",
                         subtitle: "固定当前焦点和测光，点击画面可重新对焦",
                         symbol: "viewfinder",
@@ -1670,6 +1719,62 @@ private struct HeaderIcon: View {
             .background(Color.white.opacity(0.78), in: Circle())
             .overlay(Circle().stroke(.white.opacity(0.94), lineWidth: 1))
             .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 3)
+    }
+}
+
+private struct StabilizationPreviewHUD: View {
+    let image: CGImage
+    let rollDegrees: Double
+    let isStabilizationActive: Bool
+
+    private var horizontalShift: CGFloat {
+        CGFloat(min(max(-rollDegrees * 0.34, -13), 13))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .overlay(Color.black.opacity(0.24))
+
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(
+                        isStabilizationActive ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E),
+                        lineWidth: 2
+                    )
+                    .frame(
+                        width: geometry.size.width * 0.78,
+                        height: geometry.size.height * 0.78
+                    )
+                    .offset(x: horizontalShift)
+                    .animation(.interactiveSpring(response: 0.20, dampingFraction: 0.82), value: rollDegrees)
+
+                VStack {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(isStabilizationActive ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E))
+                            .frame(width: 5, height: 5)
+                        Text(isStabilizationActive ? "STABILIZED VIEW" : "STABILIZATION")
+                            .font(.system(size: 6, weight: .heavy, design: .rounded))
+                            .tracking(0.6)
+                        Spacer(minLength: 0)
+                    }
+                    Spacer()
+                }
+                .padding(7)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.92), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        }
+        .accessibilityLabel("防抖取景监视器，显示实时画面与估算的稳定取景范围")
     }
 }
 
