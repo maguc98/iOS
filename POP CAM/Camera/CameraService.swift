@@ -221,7 +221,7 @@ final class CameraService: ObservableObject {
                 }
             }
         } catch {
-            DispatchQueue.main.async { self.errorMessage = "无法应用视频参数：\\(error.localizedDescription)" }
+            DispatchQueue.main.async { self.errorMessage = "无法应用视频参数：\(error.localizedDescription)" }
         }
     }
 
@@ -244,10 +244,12 @@ final class CameraService: ObservableObject {
                 }
 
                 let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("POPCAM-\\(UUID().uuidString).mov")
+                    .appendingPathComponent("POPCAM-\(UUID().uuidString).mov")
                 let delegate = MovieFileRecordingDelegate { [weak self] outputURL, error in
                     guard let self else { return }
-                    self.finishRecording(at: outputURL, error: error)
+                    Task { @MainActor in
+                        self.finishRecording(at: outputURL, error: error)
+                    }
                 }
                 self.movieDelegate = delegate
                 self.movieOutput.startRecording(to: url, recordingDelegate: delegate)
@@ -293,7 +295,7 @@ final class CameraService: ObservableObject {
 
         guard error == nil else {
             try? FileManager.default.removeItem(at: url)
-            DispatchQueue.main.async { self.errorMessage = "录像失败：\\(error!.localizedDescription)" }
+            DispatchQueue.main.async { self.errorMessage = "录像失败：\(error!.localizedDescription)" }
             return
         }
 
@@ -309,7 +311,7 @@ final class CameraService: ObservableObject {
             } completionHandler: { success, saveError in
                 try? FileManager.default.removeItem(at: url)
                 DispatchQueue.main.async {
-                    self.errorMessage = success ? "视频已保存到照片图库。" : "保存视频失败：\\(saveError?.localizedDescription ?? "未知错误")"
+                    self.errorMessage = success ? "视频已保存到照片图库。" : "保存视频失败：\(saveError?.localizedDescription ?? "未知错误")"
                 }
             }
         }
