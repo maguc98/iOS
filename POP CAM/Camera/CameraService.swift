@@ -147,7 +147,18 @@ final class CameraService: ObservableObject {
     }
 
     private func cameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
-        AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+        if position == .back {
+            // Prefer Apple's virtual multi-camera device. It lets AVFoundation
+            // move between the ultra-wide and wide lenses without replacing the
+            // capture input during a pinch gesture.
+            if let triple = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
+                return triple
+            }
+            if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+                return dualWide
+            }
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
     }
 
     private func applyPortraitOrientation() {
@@ -205,12 +216,13 @@ final class CameraService: ObservableObject {
         }
     }
 
+    @discardableResult
     private func applyVideoConfiguration(
         device: AVCaptureDevice,
         resolution: String,
         frameRate: Int,
         hdrEnabled: Bool
-    ) {
+    ) -> Bool {
         let requestedResolution = resolution == "4K" ? "4K" : "1080P"
         let requestedDimensions = requestedResolution == "4K"
             ? (width: 3840, height: 2160)
@@ -249,11 +261,8 @@ final class CameraService: ObservableObject {
                 actualFPS: actualFPS
             )
         }.sorted { lhs, rhs in
-            // HDR on: choose an HDR-capable format first.
-            // HDR off: choose an SDR format first so the device can turn HDR off
-            // as part of its active-format change without an unsafe manual write.
             if lhs.supportsHDR != rhs.supportsHDR {
-                return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
+                return hdrEnabled ? lhs.supportsHDR : !rhs.supportsHDR
             }
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
@@ -269,7 +278,7 @@ final class CameraService: ObservableObject {
                 self.isVideoConfigurationInProgress = false
                 self.errorMessage = "当前镜头没有可用的 \(requestedResolution) 视频格式，请尝试 1080P 或 30 FPS。"
             }
-            return
+            return false
         }
 
         let frameDuration = CMTime(
@@ -277,6 +286,11 @@ final class CameraService: ObservableObject {
             preferredTimescale: 1_000_000_000
         )
 
+        // Format, HDR and frame duration are changed as one session transaction.
+        // In particular, iOS 18+ can enable automatic frame-rate adjustment.
+        // Setting manual frame durations while that mode is enabled raises an
+        // Objective-C exception (and terminates the app), so explicitly turn it
+        // off after selecting the new format and before writing frame durations.
         session.beginConfiguration()
         var configurationError: Error?
         do {
@@ -287,8 +301,17 @@ final class CameraService: ObservableObject {
                 device.activeFormat = chosen.format
             }
 
-            // Leave AVFoundation's default automatic HDR management untouched.
-            // The selected format determines whether this stream can be HDR.
+            if #available(iOS 18.0, *), device.isAutoVideoFrameRateEnabled {
+                device.isAutoVideoFrameRateEnabled = false
+            }
+
+            device.automaticallyAdjustsVideoHDREnabled = false
+            if chosen.supportsHDR {
+                device.isVideoHDREnabled = hdrEnabled
+            } else if device.isVideoHDREnabled {
+                device.isVideoHDREnabled = false
+            }
+
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
         } catch {
@@ -301,14 +324,14 @@ final class CameraService: ObservableObject {
                 self.isVideoConfigurationInProgress = false
                 self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
             }
-            return
+            return false
         }
 
         let actualResolution = chosen.dimensions.width >= 3840 && chosen.dimensions.height >= 2160
             ? "4K"
             : "1080P"
         let actualFrameRate = Int(chosen.actualFPS.rounded())
-        let actualHDR = chosen.format.isVideoHDRSupported && device.isVideoHDREnabled
+        let actualHDR = chosen.supportsHDR && device.isVideoHDREnabled
         let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
@@ -331,19 +354,39 @@ final class CameraService: ObservableObject {
             }
         }
 
+        // Use HEVC only when the active movie connection explicitly advertises
+        // support for the codec key and the codec itself.
         if let connection = movieOutput.connection(with: .video),
-           movieOutput.availableVideoCodecTypes.contains(.hevc) {
+           movieOutput.availableVideoCodecTypes.contains(.hevc),
+           movieOutput.supportedOutputSettingsKeys(for: connection).contains(AVVideoCodecKey) {
             movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
         }
+
+        return true
     }
 
     func startRecording(resolution: String, frameRate: Int, hdrEnabled: Bool) {
         guard isReady else { return }
+
         let beginRecording: (Bool) -> Void = { [weak self] microphoneGranted in
             guard let self else { return }
             self.sessionQueue.async {
-                guard !self.movieOutput.isRecording, let device = self.activeInput?.device else { return }
-                self.applyVideoConfiguration(device: device, resolution: resolution, frameRate: frameRate, hdrEnabled: hdrEnabled)
+                guard !self.movieOutput.isRecording,
+                      let device = self.activeInput?.device else {
+                    DispatchQueue.main.async {
+                        self.errorMessage = "相机仍在切换配置，请稍后再开始录像。"
+                    }
+                    return
+                }
+
+                // Never start the writer unless the requested capture format
+                // has been applied successfully.
+                guard self.applyVideoConfiguration(
+                    device: device,
+                    resolution: resolution,
+                    frameRate: frameRate,
+                    hdrEnabled: hdrEnabled
+                ) else { return }
 
                 if microphoneGranted, self.audioInput == nil,
                    let audioDevice = AVCaptureDevice.default(for: .audio),
@@ -353,6 +396,14 @@ final class CameraService: ObservableObject {
                     self.session.addInput(input)
                     self.audioInput = input
                     self.session.commitConfiguration()
+                    self.applyPortraitOrientation()
+                }
+
+                guard self.movieOutput.connection(with: .video) != nil else {
+                    DispatchQueue.main.async {
+                        self.errorMessage = "录像通道尚未准备好，请重新尝试。"
+                    }
+                    return
                 }
 
                 let url = FileManager.default.temporaryDirectory
@@ -365,6 +416,7 @@ final class CameraService: ObservableObject {
                 }
                 self.movieDelegate = delegate
                 self.movieOutput.startRecording(to: url, recordingDelegate: delegate)
+
                 DispatchQueue.main.async {
                     self.isRecording = true
                     self.recordingStartedAt = Date()
@@ -384,7 +436,9 @@ final class CameraService: ObservableObject {
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .audio) { granted in beginRecording(granted) }
         default:
-            DispatchQueue.main.async { self.errorMessage = "麦克风权限未开启，本次录像将没有声音。" }
+            DispatchQueue.main.async {
+                self.errorMessage = "麦克风权限未开启，本次录像将没有声音。"
+            }
             beginRecording(false)
         }
     }
@@ -622,50 +676,37 @@ final class CameraService: ObservableObject {
         }
     }
 
-    func setZoom(_ value: CGFloat) {
-        let wantsUltraWide = value < 1 && cameraPosition == .back
-        let requestedZoom = wantsUltraWide ? 0.5 : min(max(value, 1), 10)
-        zoomFactor = requestedZoom
-
+    func setZoom(_ value: CGFloat, animated: Bool = true) {
         sessionQueue.async { [weak self] in
-            guard let self, let currentInput = self.activeInput,
-                  let oldDevice = self.activeInput?.device else { return }
+            guard let self, let device = self.activeInput?.device else { return }
 
-            let targetType: AVCaptureDevice.DeviceType = wantsUltraWide
-                ? .builtInUltraWideCamera
-                : .builtInWideAngleCamera
-            guard let targetDevice = AVCaptureDevice.default(
-                targetType,
-                for: .video,
-                position: self.cameraPosition
-            ), let targetInput = try? AVCaptureDeviceInput(device: targetDevice) else { return }
+            // Virtual cameras expose Apple's optical lens hand-off through one
+            // zoom control. Convert the UI value using Apple's display multiplier
+            // instead of replacing the capture input at the 0.5x / 1x boundary.
+            let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.001)
+            let minimumDisplayZoom = device.minAvailableVideoZoomFactor * multiplier
+            let maximumDisplayZoom = min(
+                CGFloat(10),
+                device.maxAvailableVideoZoomFactor * multiplier
+            )
+            let displayZoom = min(max(value, minimumDisplayZoom), maximumDisplayZoom)
+            let hardwareZoom = displayZoom / multiplier
 
             do {
-                if oldDevice.uniqueID != targetDevice.uniqueID {
-                    self.session.beginConfiguration()
-                    self.session.removeInput(currentInput)
-                    guard self.session.canAddInput(targetInput) else {
-                        self.session.addInput(currentInput)
-                        self.session.commitConfiguration()
-                        self.applyPortraitOrientation()
-                        return
-                    }
-                    self.session.addInput(targetInput)
-                    self.activeInput = targetInput
-                    self.session.commitConfiguration()
-                    self.applyPortraitOrientation()
+                try device.lockForConfiguration()
+                device.cancelVideoZoomRamp()
+
+                if animated {
+                    let distance = abs(hardwareZoom - device.videoZoomFactor)
+                    let rate = Float(min(max(3.5 + distance * 2.2, 4), 14))
+                    device.ramp(toVideoZoomFactor: hardwareZoom, withRate: rate)
+                } else {
+                    device.videoZoomFactor = hardwareZoom
                 }
 
-                try targetDevice.lockForConfiguration()
-                let hardwareMaximum = min(CGFloat(10), targetDevice.maxAvailableVideoZoomFactor)
-                let hardwareTarget = wantsUltraWide ? CGFloat(1) : min(requestedZoom, hardwareMaximum)
-                targetDevice.cancelVideoZoomRamp()
-                targetDevice.ramp(toVideoZoomFactor: hardwareTarget, withRate: 8)
-                targetDevice.unlockForConfiguration()
-
-                let displayedZoom = wantsUltraWide ? CGFloat(0.5) : hardwareTarget
+                device.unlockForConfiguration()
                 DispatchQueue.main.async {
-                    self.zoomFactor = displayedZoom
+                    self.zoomFactor = displayZoom
                 }
             } catch {
                 DispatchQueue.main.async {
