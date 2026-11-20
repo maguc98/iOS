@@ -23,9 +23,7 @@ struct PhotoReviewView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
+            Color(hex: 0xF1ECFA).ignoresSafeArea()
 
             VStack(spacing: 14) {
                 HStack {
@@ -34,7 +32,7 @@ struct PhotoReviewView: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: 0x3D4352))
                             .frame(width: 42, height: 42)
-                            .background(Color.white.opacity(0.78), in: Circle())
+                            .background(Color.white, in: Circle())
                     }
                     Spacer()
                     Text("YOUR SNAP")
@@ -49,7 +47,7 @@ struct PhotoReviewView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x3D4352))
                             .frame(width: 42, height: 42)
-                            .background(Color.white.opacity(0.78), in: Circle())
+                            .background(Color.white, in: Circle())
                     }
                 }
                 .padding(.horizontal, 22)
@@ -72,7 +70,7 @@ struct PhotoReviewView: View {
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .padding(.horizontal, 18)
-                    .shadow(color: Color(hex: 0x8E9AAC).opacity(0.22), radius: 22, y: 12)
+
                     .frame(maxHeight: .infinity)
 
                 VStack(spacing: 9) {
@@ -112,7 +110,7 @@ struct PhotoReviewView: View {
                             .foregroundStyle(Color(hex: 0x3D4352))
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white.opacity(0.82), in: Capsule())
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(Capsule().stroke(Color.white, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
@@ -139,11 +137,7 @@ struct PhotoReviewView: View {
                         .foregroundStyle(Color.black.opacity(0.82))
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .background(
-                            LinearGradient(colors: [Color(hex: 0xFFE45E), Color(hex: 0xFF9A58), Color(hex: 0xFF72A6)],
-                                           startPoint: .leading, endPoint: .trailing),
-                            in: Capsule()
-                        )
+                        .background(Color(hex: 0xFFE45E), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .disabled(saved || isEnhancing)
@@ -171,8 +165,7 @@ struct PhotoReviewView: View {
                 .foregroundStyle(Color(hex: 0x3D4352))
                 .padding(.horizontal, 18)
                 .padding(.vertical, 8)
-                .background(selected ? Color.white : Color.white.opacity(0.42), in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(selected ? 1 : 0.65), lineWidth: 1))
+                .background(selected ? Color(hex: 0xE8F4FA) : Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
     }
