@@ -277,16 +277,17 @@ struct CameraScreen: View {
                 camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
             }
         }
-        .onChange(of: camera.appliedFrameRate) { _, value in
-            let actual = String(value)
-            if selectedFrameRate != actual { selectedFrameRate = actual }
-        }
-        .onChange(of: camera.appliedResolution) { _, value in
-            if selectedVideoResolution != value { selectedVideoResolution = value }
-        }
-        .onChange(of: camera.appliedHDR) { _, value in
-            guard let value else { return }
-            if hdrEnabled != value { hdrEnabled = value }
+        .onChange(of: camera.videoConfigurationRevision) { _, _ in
+            let actualFrameRate = String(camera.appliedFrameRate)
+            if selectedFrameRate != actualFrameRate {
+                selectedFrameRate = actualFrameRate
+            }
+            if selectedVideoResolution != camera.appliedResolution {
+                selectedVideoResolution = camera.appliedResolution
+            }
+            if let actualHDR = camera.appliedHDR, hdrEnabled != actualHDR {
+                hdrEnabled = actualHDR
+            }
         }
         .onChange(of: showLevel) { _, enabled in
             if enabled { levelMonitor.start() } else { levelMonitor.stop() }

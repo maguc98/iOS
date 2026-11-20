@@ -38,6 +38,7 @@ final class CameraService: ObservableObject {
     @Published private(set) var appliedHDR: Bool? = nil
     @Published private(set) var appliedFrameRate = 0
     @Published private(set) var appliedResolution = ""
+    @Published private(set) var videoConfigurationRevision = 0
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
@@ -321,6 +322,7 @@ final class CameraService: ObservableObject {
             self.appliedFrameRate = actualFrameRate
             self.appliedHDR = useHDR
             self.appliedVideoDescription = description
+            self.videoConfigurationRevision &+= 1
 
             let needsFallback =
                 actualResolution != requestedResolution ||
