@@ -1394,130 +1394,185 @@ private struct LocalMediaAlbumSheet: View {
     let onDelete: (URL) -> Void
 
     @AppStorage("popcam.album.favorites") private var favoritePathsStorage = ""
+    @AppStorage("popcam.album.customCollections.v1") private var collectionsStorage = "[]"
     @Environment(\.dismiss) private var dismiss
+
+    @Namespace private var tabMotion
+    @State private var selectedTab: POPAlbumTab = .photos
     @State private var selectedFilter: AlbumMediaFilter = .all
-    @State private var selectedTab: AlbumMainTab = .library
     @State private var searchText = ""
     @State private var isSearchExpanded = false
+    @State private var sortNewestFirst = true
+    @State private var contentAppeared = false
+    @State private var refreshRotation = 0.0
+
     @State private var isSelecting = false
     @State private var selectedPaths: Set<String> = []
     @State private var selectedURL: URL?
+    @State private var viewerItems: [URL] = []
     @State private var showViewer = false
     @State private var showDeleteConfirmation = false
-    @State private var sortNewestFirst = true
 
-    private let columns = Array(
-        repeating: GridItem(.flexible(), spacing: 3),
-        count: 5
-    )
+    @State private var memorySet: [URL] = []
+    @State private var activeCollectionID: String?
+    @State private var showNewCollectionAlert = false
+    @State private var newCollectionName = ""
+
+    private let photoColumns = Array(repeating: GridItem(.flexible(), spacing: 9), count: 3)
+    private let collectionColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 2)
 
     private var favoritePaths: Set<String> {
         Set(favoritePathsStorage.split(separator: "\n").map(String.init))
     }
 
-    private var displayedMedia: [URL] {
-        media
-            .filter { url in
-                switch selectedFilter {
-                case .all: return true
-                case .photos: return !url.isVideoMedia
-                case .videos: return url.isVideoMedia
-                }
-            }
-            .filter { url in
-                selectedTab == .library || favoritePaths.contains(url.path)
-            }
-            .filter { url in
-                searchText.isEmpty || url.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveContains(searchText)
-            }
-            .sorted { lhs, rhs in
-                let leftDate = Self.mediaDate(lhs)
-                let rightDate = Self.mediaDate(rhs)
-                return sortNewestFirst ? leftDate > rightDate : leftDate < rightDate
-            }
+    private var customCollections: [POPCustomCollection] {
+        guard let data = collectionsStorage.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([POPCustomCollection].self, from: data) else {
+            return []
+        }
+        return decoded
     }
 
-    private var dateRangeTitle: String {
-        let dates = media.map(Self.mediaDate).filter { $0 > .distantPast }.sorted()
-        guard let first = dates.first, let last = dates.last else {
-            return "记录每一次值得保存的瞬间"
+    private var activeCollection: POPCustomCollection? {
+        guard let activeCollectionID else { return nil }
+        return customCollections.first { $0.id == activeCollectionID }
+    }
+
+    private var displayedMedia: [URL] {
+        var result = media
+
+        if let activeCollection {
+            let paths = Set(activeCollection.paths)
+            result = result.filter { paths.contains($0.path) }
         }
-        let firstText = Self.dateText(first)
-        let lastText = Self.dateText(last)
-        return firstText == lastText ? firstText : "\(firstText) – \(lastText)"
+
+        switch selectedFilter {
+        case .all:
+            break
+        case .photos:
+            result = result.filter { !$0.isVideoMedia }
+        case .videos:
+            result = result.filter { $0.isVideoMedia }
+        case .favorites:
+            result = result.filter { favoritePaths.contains($0.path) }
+        }
+
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        return result.sorted {
+            let lhsDate = Self.mediaDate($0)
+            let rhsDate = Self.mediaDate($1)
+            return sortNewestFirst ? lhsDate > rhsDate : lhsDate < rhsDate
+        }
+    }
+
+    private var dateGroups: [POPAlbumDateGroup] {
+        let grouped = Dictionary(grouping: displayedMedia) {
+            Calendar.current.startOfDay(for: Self.mediaDate($0))
+        }
+        let dates = grouped.keys.sorted { sortNewestFirst ? $0 > $1 : $0 < $1 }
+        return dates.map { POPAlbumDateGroup(date: $0, items: grouped[$0] ?? []) }
+    }
+
+    private var photoCount: Int {
+        media.filter { !$0.isVideoMedia }.count
+    }
+
+    private var videoCount: Int {
+        media.filter(\.isVideoMedia).count
+    }
+
+    private var currentTitle: String {
+        if let activeCollection { return activeCollection.title }
+        switch selectedTab {
+        case .photos: return "所有瞬间"
+        case .memories: return "回忆时光"
+        case .albums: return "我的相簿"
+        }
+    }
+
+    private var headerSubtitle: String {
+        if let activeCollection {
+            return "\(activeCollection.paths.count) 个收藏瞬间"
+        }
+        return "\(photoCount) 张照片  ·  \(videoCount) 段视频"
+    }
+
+    private var heroPhoto: URL? {
+        memorySet.first ?? displayedMedia.first ?? media.first
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(hex: 0xF7F0FA).ignoresSafeArea()
+                Color(hex: 0xF4F8FC).ignoresSafeArea()
 
-                ScrollView {
-                    if displayedMedia.isEmpty {
-                        ContentUnavailableView(
-                            selectedTab == .favorites ? "精选集还是空的" : "相册还是空的",
-                            systemImage: selectedTab == .favorites ? "heart" : "photo.on.rectangle.angled",
-                            description: Text(
-                                selectedTab == .favorites
-                                    ? "打开一张照片，点击爱心即可加入精选集。"
-                                    : "在 POP CAM 拍摄并保存的照片和视频，会显示在这里。"
-                            )
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 300)
-                    } else {
-                        LazyVGrid(columns: columns, spacing: 3) {
-                            ForEach(displayedMedia, id: \.absoluteString) { url in
-                                Button {
-                                    if isSelecting {
-                                        toggleSelection(for: url)
-                                    } else {
-                                        selectedURL = url
-                                        showViewer = true
-                                    }
-                                } label: {
-                                    LocalAlbumThumbnail(url: url)
-                                        .overlay(alignment: .topTrailing) {
-                                            if isSelecting {
-                                                selectionMark(isSelected: selectedPaths.contains(url.path))
-                                                    .padding(5)
-                                            }
-                                        }
-                                        .overlay {
-                                            if selectedPaths.contains(url.path) {
-                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                                    .stroke(Color(hex: 0x78B8EE), lineWidth: 3)
-                                            }
-                                        }
-                                }
-                                .buttonStyle(.plain)
-                            }
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        pageHeader
+                            .offset(y: contentAppeared ? 0 : 12)
+                            .opacity(contentAppeared ? 1 : 0)
+
+                        if selectedTab != .albums || activeCollection != nil {
+                            memoryFeatureCard
+                                .offset(y: contentAppeared ? 0 : 18)
+                                .opacity(contentAppeared ? 1 : 0)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        .padding(.horizontal, 3)
-                        .padding(.top, 3)
-                        .padding(.bottom, 18)
+
+                        if selectedTab == .photos {
+                            filterControls
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            photosContent
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else if selectedTab == .memories {
+                            memoriesContent
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else if activeCollection == nil {
+                            collectionsContent
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else {
+                            filterControls
+                                .transition(.opacity)
+                            photosContent
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 14)
+                    .padding(.bottom, 22)
                 }
-                .scrollIndicators(.hidden)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    albumHeader
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    albumBottomBar
-                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                bottomNavigation
             }
             .toolbar(.hidden, for: .navigationBar)
         }
         .preferredColorScheme(.light)
-        .fullScreenCover(isPresented: $showViewer, onDismiss: { selectedURL = nil }) {
-            if let selectedURL {
+        .fullScreenCover(isPresented: $showViewer, onDismiss: {
+            selectedURL = nil
+            viewerItems = []
+        }) {
+            if let selectedURL, !viewerItems.isEmpty {
                 LocalAlbumDetailView(
-                    media: displayedMedia,
+                    media: viewerItems,
                     initialURL: selectedURL,
-                    onDelete: { deletedURL in
-                        onDelete(deletedURL)
-                    }
+                    onDelete: onDelete
                 )
             }
+        }
+        .alert("创建新相簿", isPresented: $showNewCollectionAlert) {
+            TextField("例如：周末散步", text: $newCollectionName)
+                .textInputAutocapitalization(.words)
+            Button("创建") { createCollection() }
+                .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("取消", role: .cancel) { newCollectionName = "" }
+        } message: {
+            Text("给这组照片起一个名字，之后可以随时添加新照片。")
         }
         .confirmationDialog(
             "删除已选择的 \(selectedPaths.count) 项内容？",
@@ -1536,208 +1591,812 @@ private struct LocalMediaAlbumSheet: View {
         } message: {
             Text("删除后将无法从 POP CAM 相册中恢复。")
         }
+        .onAppear {
+            refreshMemories()
+            withAnimation(.spring(response: 0.58, dampingFraction: 0.84).delay(0.06)) {
+                contentAppeared = true
+            }
+        }
     }
 
-    private var albumHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selectedTab == .library ? "图库" : "精选集")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x283242))
-                    Text(dateRangeTitle)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x596477))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+    private var pageHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("POP  /  MOMENTS")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .tracking(2.2)
+                        .foregroundStyle(Color(hex: 0x7E9BB8))
+                    Text(currentTitle)
+                        .font(.system(size: 31, weight: .bold, design: .rounded))
+                        .tracking(-0.8)
+                        .foregroundStyle(Color(hex: 0x354255))
+                        .contentTransition(.numericText())
+                    Text(headerSubtitle)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x8794A5))
                 }
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 0)
 
-                Menu {
-                    Picker("内容", selection: $selectedFilter) {
-                        Text("全部").tag(AlbumMediaFilter.all)
-                        Text("照片").tag(AlbumMediaFilter.photos)
-                        Text("视频").tag(AlbumMediaFilter.videos)
-                    }
-                    Divider()
+                HStack(spacing: 8) {
                     Button {
-                        sortNewestFirst = true
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
+                            isSearchExpanded.toggle()
+                            if !isSearchExpanded { searchText = "" }
+                        }
+                        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                     } label: {
-                        Label("最新优先", systemImage: sortNewestFirst ? "checkmark" : "clock")
+                        albumActionCircle("magnifyingglass", fill: 0xFFFFFF)
                     }
-                    Button {
-                        sortNewestFirst = false
-                    } label: {
-                        Label("最早优先", systemImage: !sortNewestFirst ? "checkmark" : "calendar")
-                    }
-                } label: {
-                    albumCircleControl(symbol: "line.3.horizontal.decrease")
-                }
+                    .buttonStyle(.plain)
 
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        isSelecting.toggle()
-                        if !isSelecting { selectedPaths.removeAll() }
+                    if selectedTab == .albums && activeCollection == nil {
+                        Button {
+                            newCollectionName = ""
+                            showNewCollectionAlert = true
+                        } label: {
+                            albumActionCircle("plus", fill: 0xFFF0B8, tint: 0x6F633A)
+                        }
+                        .buttonStyle(.plain)
+                    } else if activeCollection != nil {
+                        Button {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                                activeCollectionID = nil
+                                selectedTab = .albums
+                                isSelecting = false
+                                selectedPaths.removeAll()
+                            }
+                        } label: {
+                            albumActionCircle("arrow.uturn.backward", fill: 0xFFFFFF)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Menu {
+                            Button {
+                                sortNewestFirst = true
+                            } label: {
+                                Label("最新优先", systemImage: sortNewestFirst ? "checkmark" : "clock")
+                            }
+                            Button {
+                                sortNewestFirst = false
+                            } label: {
+                                Label("最早优先", systemImage: !sortNewestFirst ? "checkmark" : "calendar")
+                            }
+                            Divider()
+                            Button {
+                                isSelecting = true
+                            } label: {
+                                Label("选择照片", systemImage: "checkmark.circle")
+                            }
+                        } label: {
+                            albumActionCircle("ellipsis", fill: 0xFFFFFF)
+                        }
                     }
-                } label: {
-                    Text(isSelecting ? "完成" : "选择")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x3D4352))
-                        .padding(.horizontal, 21)
-                        .frame(height: 44)
-                        .background(
-                            Color(hex: 0xE8F4FA), in: Capsule()
-                        )
                 }
-                .buttonStyle(.plain)
             }
 
             if isSearchExpanded {
-                HStack(spacing: 9) {
+                HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(Color(hex: 0x8490A1))
-                    TextField("搜索照片或视频名称", text: $searchText)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x8B9AAF))
+                    TextField("搜索照片名称", text: $searchText)
                         .font(.system(size: 14, weight: .medium))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Button {
-                        searchText = ""
-                        isSearchExpanded = false
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color(hex: 0xA5ADBA))
+                    if !searchText.isEmpty {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.18)) { searchText = "" }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color(hex: 0xAAB4C1))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 14)
-                .frame(height: 42)
+                .padding(.horizontal, 15)
+                .frame(height: 44)
                 .background(Color.white, in: Capsule())
+                .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
-        .background(Color(hex: 0xF7F0FA))
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: isSearchExpanded)
     }
 
-    private var albumBottomBar: some View {
-        HStack(spacing: 12) {
-            if isSelecting {
-                HStack(spacing: 14) {
-                    Text("已选择 \(selectedPaths.count) 项")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x3D4352))
-                    Spacer(minLength: 0)
-                    Button("全选") {
-                        selectedPaths = Set(displayedMedia.map(\.path))
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x6E9DCE))
-                    Button {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 42, height: 42)
-                            .background(Color(hex: 0xF18B89), in: Circle())
-                    }
-                    .disabled(selectedPaths.isEmpty)
-                    .opacity(selectedPaths.isEmpty ? 0.45 : 1)
-                }
-                .padding(.horizontal, 18)
-                .frame(height: 62)
-                .background(albumDockBackground)
-            } else {
-                HStack(spacing: 0) {
-                    albumTabButton(.library, title: "图库", symbol: "photo.on.rectangle.angled")
-                    albumTabButton(.favorites, title: "精选集", symbol: "square.stack.3d.up")
-                }
-                .padding(5)
-                .frame(height: 68)
-                .background(albumDockBackground)
-
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        isSearchExpanded.toggle()
-                        if !isSearchExpanded { searchText = "" }
-                    }
-                } label: {
-                    Image(systemName: isSearchExpanded ? "xmark" : "magnifyingglass")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x52647A))
-                        .frame(width: 62, height: 62)
-                        .background(
-                            Color(hex: 0xFFF1E4), in: Circle()
-                        )
-                        
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 9)
-        .padding(.bottom, 6)
-        .background(Color(hex: 0xF7F0FA).ignoresSafeArea(edges: .bottom))
-    }
-
-    private var albumDockBackground: some View {
-        Capsule()
-            .fill(Color(hex: 0xE8F4FA))
-    }
-
-    private func albumTabButton(_ tab: AlbumMainTab, title: String, symbol: String) -> some View {
+    private var memoryFeatureCard: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                selectedTab = tab
-                selectedPaths.removeAll()
-                isSelecting = false
+            if let heroPhoto {
+                openViewer(heroPhoto, in: memorySet.isEmpty ? displayedMedia : memorySet)
+            } else {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                    selectedTab = .memories
+                }
             }
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: symbol)
-                    .font(.system(size: 22, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-            }
-            .foregroundStyle(selectedTab == tab ? Color(hex: 0x559ED8) : Color(hex: 0x687487))
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background {
-                if selectedTab == tab {
-                    Capsule()
-                        .fill(Color.white)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color(hex: 0x8FD9AC))
+                            .frame(width: 6, height: 6)
+                        Text("A LITTLE LOOK BACK")
+                            .font(.system(size: 9, weight: .black, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(Color(hex: 0x7B8B8D))
+                    }
+                    Text("把日常，\n收进回忆里。")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                        .lineSpacing(3)
+                    HStack(spacing: 6) {
+                        Text("打开回忆")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(Color(hex: 0x668BB2))
                 }
+                Spacer(minLength: 0)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(Color(hex: 0xF9DCE8))
+                        .frame(width: 76, height: 91)
+                        .rotationEffect(.degrees(8))
+                        .offset(x: 9, y: 3)
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(Color(hex: 0xDCEEFF))
+                        .frame(width: 78, height: 94)
+                        .rotationEffect(.degrees(-7))
+                        .offset(x: -5, y: -2)
+                    if let heroPhoto {
+                        LocalAlbumThumbnail(url: heroPhoto)
+                            .frame(width: 82, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.white, lineWidth: 3)
+                            }
+                            .rotationEffect(.degrees(2))
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x9A8BCC))
+                            .frame(width: 82, height: 100)
+                            .background(Color(hex: 0xEAE3FA), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+                .frame(width: 112, height: 112)
             }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 15)
+            .frame(maxWidth: .infinity, minHeight: 136)
+            .background(Color(hex: 0xFFF4D5), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(Color(hex: 0xFFFFFF).opacity(0.55))
+                    .frame(width: 24, height: 24)
+                    .offset(x: -15, y: 13)
+            }
+        }
+        .buttonStyle(POPPressableStyle())
+        .disabled(media.isEmpty)
+    }
+
+    private var filterControls: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                filterChip("全部", filter: .all, tint: 0xDCEEFF)
+                filterChip("照片", filter: .photos, tint: 0xDDF2E5)
+                filterChip("视频", filter: .videos, tint: 0xF9E1EB)
+                filterChip("收藏", filter: .favorites, tint: 0xEAE3FA)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func filterChip(_ title: String, filter: AlbumMediaFilter, tint: UInt32) -> some View {
+        let selected = selectedFilter == filter
+        return Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                selectedFilter = filter
+            }
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            HStack(spacing: 6) {
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .black))
+                        .transition(.scale.combined(with: .opacity))
+                }
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Color(hex: 0x435268))
+            .padding(.horizontal, 15)
+            .frame(height: 34)
+            .background(selected ? Color(hex: tint) : Color.white, in: Capsule())
         }
         .buttonStyle(.plain)
     }
 
-    private func albumCircleControl(symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(Color(hex: 0x52647A))
-            .frame(width: 44, height: 44)
-            .background(
-                Color(hex: 0xE8F4FA),
-                in: Circle()
+    @ViewBuilder
+    private var photosContent: some View {
+        if displayedMedia.isEmpty {
+            emptyState(
+                symbol: activeCollection == nil ? "photo.on.rectangle.angled" : "rectangle.stack.badge.plus",
+                title: activeCollection == nil ? "还没有照片" : "这个相簿还空着",
+                message: activeCollection == nil ? "拍下第一张照片，让这里慢慢装满回忆。" : "选择几张喜欢的照片，放进这个小相簿吧。",
+                actionTitle: activeCollection == nil ? nil : "添加照片",
+                action: activeCollection == nil ? nil : { isSelecting = true }
             )
-            
-    }
-
-    private func selectionMark(isSelected: Bool) -> some View {
-        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 21, weight: .semibold))
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(isSelected ? Color.white : Color.white, Color(hex: 0x78B8EE))
-    }
-
-    private func toggleSelection(for url: URL) {
-        if selectedPaths.contains(url.path) {
-            selectedPaths.remove(url.path)
         } else {
-            selectedPaths.insert(url.path)
+            VStack(alignment: .leading, spacing: 19) {
+                HStack {
+                    Text(activeCollection == nil ? "时间轴" : "相簿内容")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                    Spacer()
+                    Text("\(displayedMedia.count) ITEMS")
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .tracking(1.2)
+                        .foregroundStyle(Color(hex: 0x9AA7B6))
+                }
+
+                ForEach(dateGroups) { group in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(Self.sectionDateText(group.date))
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color(hex: 0x46566C))
+                            Text(Self.weekdayText(group.date))
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color(hex: 0x9AA7B6))
+                            Spacer()
+                            Text("\(group.items.count) 张")
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color(hex: 0xA5AFBB))
+                        }
+
+                        LazyVGrid(columns: photoColumns, spacing: 9) {
+                            ForEach(Array(group.items.enumerated()), id: \.element.path) { index, url in
+                                photoTile(url, index: index, source: displayedMedia)
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private func photoTile(_ url: URL, index: Int, source: [URL]) -> some View {
+        let selected = selectedPaths.contains(url.path)
+        return Button {
+            if isSelecting {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) {
+                    if selected { selectedPaths.remove(url.path) }
+                    else { selectedPaths.insert(url.path) }
+                }
+                UISelectionFeedbackGenerator().selectionChanged()
+            } else {
+                openViewer(url, in: source)
+            }
+        } label: {
+            LocalAlbumThumbnail(url: url)
+                .overlay(alignment: .topTrailing) {
+                    if isSelecting {
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 20, weight: .semibold))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color(hex: selected ? 0x78B8EE : 0x64748B))
+                            .padding(7)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .overlay {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color(hex: 0x78B8EE), lineWidth: 3)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .scaleEffect(contentAppeared ? 1 : 0.9)
+                .opacity(contentAppeared ? 1 : 0)
+                .animation(
+                    .spring(response: 0.42, dampingFraction: 0.76)
+                        .delay(Double(index % 6) * 0.035),
+                    value: contentAppeared
+                )
+        }
+        .buttonStyle(POPPressableStyle())
+        .accessibilityLabel(isSelecting ? (selected ? "取消选择" : "选择照片") : "打开照片")
+    }
+
+    private var memoriesContent: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("RANDOM MOMENTS")
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .tracking(1.8)
+                        .foregroundStyle(Color(hex: 0x91A0B1))
+                    Text("今天想起哪一刻？")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                }
+                Spacer()
+                Button {
+                    refreshMemories()
+                    withAnimation(.spring(response: 0.55, dampingFraction: 0.56)) {
+                        refreshRotation += 180
+                    }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x657D9D))
+                        .frame(width: 40, height: 40)
+                        .background(Color(hex: 0xDCEEFF), in: Circle())
+                        .rotationEffect(.degrees(refreshRotation))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if memorySet.isEmpty {
+                emptyState(
+                    symbol: "sparkles",
+                    title: "还没有可以回看的瞬间",
+                    message: "拍摄并保存一些照片后，这里就会出现随机回忆。",
+                    actionTitle: nil,
+                    action: nil
+                )
+            } else {
+                Button {
+                    openViewer(memorySet[0], in: memorySet)
+                } label: {
+                    ZStack(alignment: .bottomLeading) {
+                        LocalAlbumThumbnail(url: memorySet[0])
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 226)
+                            .clipped()
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.0), Color.black.opacity(0.58)],
+                            startPoint: .center,
+                            endPoint: .bottom
+                        )
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("A MEMORY FOR YOU")
+                                .font(.system(size: 9, weight: .black, design: .rounded))
+                                .tracking(1.5)
+                            Text("再看一眼，那个瞬间。")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(17)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+                .buttonStyle(POPPressableStyle())
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+
+                HStack {
+                    Text("随机拾光")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                    Spacer()
+                    Text("\(memorySet.count) 个瞬间")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x99A6B5))
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 11) {
+                        ForEach(Array(memorySet.enumerated()), id: \.element.path) { index, url in
+                            Button {
+                                openViewer(url, in: memorySet)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    LocalAlbumThumbnail(url: url)
+                                        .frame(width: 126, height: 126)
+                                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                    Text(Self.shortDateText(Self.mediaDate(url)))
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Color(hex: 0x68798D))
+                                        .lineLimit(1)
+                                }
+                                .frame(width: 126)
+                                .scaleEffect(contentAppeared ? 1 : 0.92)
+                                .opacity(contentAppeared ? 1 : 0)
+                                .animation(
+                                    .spring(response: 0.45, dampingFraction: 0.78).delay(Double(index) * 0.035),
+                                    value: contentAppeared
+                                )
+                            }
+                            .buttonStyle(POPPressableStyle())
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    private var collectionsContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("YOUR LITTLE LIBRARIES")
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .tracking(1.7)
+                        .foregroundStyle(Color(hex: 0x91A0B1))
+                    Text("把喜欢的照片放在一起")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4A59))
+                }
+                Spacer()
+                Button {
+                    newCollectionName = ""
+                    showNewCollectionAlert = true
+                } label: {
+                    Label("新建", systemImage: "plus")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x586D87))
+                        .padding(.horizontal, 13)
+                        .frame(height: 34)
+                        .background(Color(hex: 0xFFF0B8), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+
+            LazyVGrid(columns: collectionColumns, spacing: 12) {
+                ForEach(Array(customCollections.enumerated()), id: \.element.id) { index, collection in
+                    collectionCard(collection, index: index)
+                }
+
+                Button {
+                    newCollectionName = ""
+                    showNewCollectionAlert = true
+                } label: {
+                    VStack(spacing: 10) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x8297B0))
+                            .frame(width: 52, height: 52)
+                            .background(Color.white.opacity(0.82), in: Circle())
+                        Text("创建相簿")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: 0x6C7D92))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 170)
+                    .background(Color(hex: 0xE7F0F8), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                    }
+                }
+                .buttonStyle(POPPressableStyle())
+            }
+        }
+    }
+
+    private func collectionCard(_ collection: POPCustomCollection, index: Int) -> some View {
+        let previews = Array(collection.paths.prefix(3)).compactMap { path in
+            media.first { $0.path == path }
+        }
+        let accents: [UInt32] = [0xF9E1EB, 0xDCEEFF, 0xEAE3FA, 0xDDF2E5, 0xFFF0B8]
+        let accent = accents[index % accents.count]
+
+        return Button {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) {
+                activeCollectionID = collection.id
+                selectedTab = .photos
+                selectedFilter = .all
+                isSelecting = false
+                selectedPaths.removeAll()
+            }
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(Color(hex: accent))
+                    if previews.isEmpty {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 31, weight: .light))
+                            .foregroundStyle(Color(hex: 0x71839A).opacity(0.7))
+                    } else {
+                        HStack(spacing: 5) {
+                            ForEach(Array(previews.enumerated()), id: \.element.path) { itemIndex, url in
+                                LocalAlbumThumbnail(url: url)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 83)
+                                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                    .rotationEffect(.degrees(itemIndex == 1 ? 2 : (itemIndex == 0 ? -2 : 1)))
+                            }
+                        }
+                        .padding(9)
+                    }
+                }
+                .frame(height: 102)
+
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(collection.title)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(hex: 0x3D4A59))
+                            .lineLimit(1)
+                        Text("\(collection.paths.count) 张照片")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(hex: 0x8D9AAA))
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x8497AA))
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .scaleEffect(contentAppeared ? 1 : 0.94)
+            .opacity(contentAppeared ? 1 : 0)
+            .animation(.spring(response: 0.46, dampingFraction: 0.78).delay(Double(index) * 0.045), value: contentAppeared)
+        }
+        .buttonStyle(POPPressableStyle())
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteCollection(collection)
+            } label: {
+                Label("删除相簿", systemImage: "trash")
+            }
+        }
+    }
+
+    private var bottomNavigation: some View {
+        VStack(spacing: 0) {
+            if isSelecting {
+                selectionToolbar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                HStack(spacing: 5) {
+                    ForEach(POPAlbumTab.allCases) { tab in
+                        Button {
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
+                                selectedTab = tab
+                                if tab != .photos { activeCollectionID = nil }
+                                selectedPaths.removeAll()
+                                isSelecting = false
+                            }
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        } label: {
+                            VStack(spacing: 5) {
+                                Image(systemName: tab.symbol)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .symbolEffect(.bounce, value: selectedTab == tab)
+                                Text(tab.title)
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(selectedTab == tab ? Color(hex: 0x4F83B6) : Color(hex: 0x8694A5))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 58)
+                            .background {
+                                if selectedTab == tab {
+                                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                        .fill(Color.white)
+                                        .matchedGeometryEffect(id: "activeAlbumTab", in: tabMotion)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(POPPressableStyle())
+                    }
+                }
+                .padding(6)
+                .background(Color(hex: 0xE7F0F8), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 9)
+        .padding(.bottom, 7)
+        .background(Color(hex: 0xF4F8FC).ignoresSafeArea(edges: .bottom))
+        .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isSelecting)
+    }
+
+    private var selectionToolbar: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(selectedPaths.count)")
+                    .font(.system(size: 19, weight: .black, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x3D4A59))
+                    .contentTransition(.numericText())
+                Text("已选择")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x8997A8))
+            }
+            .frame(width: 48, alignment: .leading)
+
+            Button("全选") {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+                    selectedPaths = Set(displayedMedia.map(\.path))
+                }
+            }
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(hex: 0x5D7FA5))
+
+            Spacer(minLength: 0)
+
+            if activeCollection != nil {
+                Button {
+                    addSelectedToActiveCollection()
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x587E9F))
+                        .frame(width: 42, height: 42)
+                        .background(Color(hex: 0xDCEEFF), in: Circle())
+                }
+                .disabled(selectedPaths.isEmpty)
+                .opacity(selectedPaths.isEmpty ? 0.45 : 1)
+            } else {
+                Menu {
+                    ForEach(customCollections) { collection in
+                        Button(collection.title) {
+                            addSelected(to: collection.id)
+                        }
+                    }
+                    Button {
+                        showNewCollectionAlert = true
+                    } label: {
+                        Label("新建相簿", systemImage: "plus")
+                    }
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x587E9F))
+                        .frame(width: 42, height: 42)
+                        .background(Color(hex: 0xDCEEFF), in: Circle())
+                }
+                .disabled(selectedPaths.isEmpty)
+                .opacity(selectedPaths.isEmpty ? 0.45 : 1)
+            }
+
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color(hex: 0xF18B9D), in: Circle())
+            }
+            .disabled(selectedPaths.isEmpty)
+            .opacity(selectedPaths.isEmpty ? 0.45 : 1)
+
+            Button {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                    selectedPaths.removeAll()
+                    isSelecting = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x6D7F93))
+                    .frame(width: 38, height: 38)
+                    .background(Color.white, in: Circle())
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 9)
+        .background(Color(hex: 0xE7F0F8), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+    }
+
+    private func emptyState(
+        symbol: String,
+        title: String,
+        message: String,
+        actionTitle: String?,
+        action: (() -> Void)?
+    ) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 31, weight: .light))
+                .foregroundStyle(Color(hex: 0x8BA8C5))
+                .frame(width: 76, height: 76)
+                .background(Color(hex: 0xE4F0FB), in: Circle())
+                .symbolEffect(.pulse, options: .repeating)
+            Text(title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4A59))
+            Text(message)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: 0x8B98A8))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x4F83B6))
+                    .padding(.horizontal, 17)
+                    .frame(height: 38)
+                    .background(Color(hex: 0xDCEEFF), in: Capsule())
+                    .padding(.top, 3)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .padding(.horizontal, 24)
+        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    private func albumActionCircle(_ symbol: String, fill: UInt32, tint: UInt32 = 0x64778E) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color(hex: tint))
+            .frame(width: 42, height: 42)
+            .background(Color(hex: fill), in: Circle())
+    }
+
+    private func openViewer(_ url: URL, in source: [URL]) {
+        guard !source.isEmpty else { return }
+        viewerItems = source
+        selectedURL = url
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+            showViewer = true
+        }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+
+    private func refreshMemories() {
+        memorySet = Array(media.shuffled().prefix(min(8, media.count)))
+    }
+
+    private func createCollection() {
+        let title = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        var collections = customCollections
+        let collection = POPCustomCollection(id: UUID().uuidString, title: title, paths: [])
+        collections.insert(collection, at: 0)
+        saveCollections(collections)
+        newCollectionName = ""
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            activeCollectionID = collection.id
+            selectedTab = .photos
+        }
+    }
+
+    private func deleteCollection(_ collection: POPCustomCollection) {
+        var collections = customCollections
+        collections.removeAll { $0.id == collection.id }
+        saveCollections(collections)
+    }
+
+    private func addSelected(to collectionID: String) {
+        var collections = customCollections
+        guard let index = collections.firstIndex(where: { $0.id == collectionID }) else { return }
+        for path in selectedPaths where !collections[index].paths.contains(path) {
+            collections[index].paths.append(path)
+        }
+        saveCollections(collections)
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            selectedPaths.removeAll()
+            isSelecting = false
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private func addSelectedToActiveCollection() {
+        guard let activeCollectionID else { return }
+        addSelected(to: activeCollectionID)
+    }
+
+    private func saveCollections(_ collections: [POPCustomCollection]) {
+        guard let data = try? JSONEncoder().encode(collections),
+              let encoded = String(data: data, encoding: .utf8) else { return }
+        collectionsStorage = encoded
     }
 
     private static func mediaDate(_ url: URL) -> Date {
@@ -1745,11 +2404,70 @@ private struct LocalMediaAlbumSheet: View {
         return values?.creationDate ?? values?.contentModificationDate ?? .distantPast
     }
 
-    private static func dateText(_ date: Date) -> String {
+    private static func sectionDateText(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) { return "今天" }
+        if Calendar.current.isDateInYesterday(date) { return "昨天" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月d日"
+        formatter.dateFormat = "M月d日"
         return formatter.string(from: date)
+    }
+
+    private static func weekdayText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date)
+    }
+
+    private static func shortDateText(_ date: Date) -> String {
+        guard date > .distantPast else { return "来自某个瞬间" }
+        return date.formatted(date: .numeric, time: .omitted)
+    }
+}
+
+private enum POPAlbumTab: String, CaseIterable, Identifiable {
+    case photos
+    case memories
+    case albums
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .photos: return "照片"
+        case .memories: return "回忆"
+        case .albums: return "相簿"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .photos: return "square.grid.3x3.fill"
+        case .memories: return "sparkles"
+        case .albums: return "rectangle.stack.fill"
+        }
+    }
+}
+
+private struct POPCustomCollection: Codable, Identifiable {
+    var id: String
+    var title: String
+    var paths: [String]
+}
+
+private struct POPAlbumDateGroup: Identifiable {
+    let date: Date
+    let items: [URL]
+    var id: Date { date }
+}
+
+private struct POPPressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.965 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.24, dampingFraction: 0.68), value: configuration.isPressed)
     }
 }
 
@@ -1757,6 +2475,7 @@ private enum AlbumMediaFilter: String, CaseIterable, Identifiable {
     case all
     case photos
     case videos
+    case favorites
 
     var id: String { rawValue }
 }
