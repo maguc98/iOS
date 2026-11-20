@@ -164,11 +164,18 @@ final class CameraService: ObservableObject {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
     }
 
+    private func displayZoomMultiplier(for device: AVCaptureDevice) -> CGFloat {
+        if #available(iOS 18.0, *) {
+            return displayZoomMultiplier(for: device)
+        }
+        return 1.0
+    }
+
     private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
         // Translate the user-facing 1x value into this device's native zoom
         // coordinate system. Virtual dual-wide cameras can use a 0.5 display
         // multiplier, where native 2.0 is the actual 1x wide-lens field of view.
-        let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.01)
+        let multiplier = displayZoomMultiplier(for: device)
         let requestedHardwareZoom = 1.0 / multiplier
         let target = min(
             max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
@@ -851,7 +858,7 @@ final class CameraService: ObservableObject {
             // UI zoom is the native factor multiplied by Apple's presentation
             // multiplier. Convert in both directions so a virtual camera's
             // 0.5x ultra-wide base is never mislabeled as 1x.
-            let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.01)
+            let multiplier = displayZoomMultiplier(for: device)
             let requestedHardwareZoom = value / multiplier
             let hardwareZoom = min(
                 max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
