@@ -104,6 +104,7 @@ final class CameraService: ObservableObject {
 
             self.session.addInput(input)
             self.activeInput = input
+            let initialDisplayZoom = self.setDefaultZoom(for: device)
 
             // Keep the camera in continuous AF/AE by default, as in a live-viewfinder camera.
             do {
@@ -141,6 +142,7 @@ final class CameraService: ObservableObject {
 
             DispatchQueue.main.async {
                 self.isReady = true
+                self.zoomFactor = initialDisplayZoom
                 self.errorMessage = nil
             }
         }
@@ -159,6 +161,24 @@ final class CameraService: ObservableObject {
             }
         }
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+    }
+
+    private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
+        let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.001)
+        let target = min(
+            max(1.0 / multiplier, device.minAvailableVideoZoomFactor),
+            device.maxAvailableVideoZoomFactor
+        )
+
+        do {
+            try device.lockForConfiguration()
+            device.cancelVideoZoomRamp()
+            device.videoZoomFactor = target
+            device.unlockForConfiguration()
+            return target * multiplier
+        } catch {
+            return device.videoZoomFactor * multiplier
+        }
     }
 
     private func applyPortraitOrientation() {
@@ -185,10 +205,11 @@ final class CameraService: ObservableObject {
             if self.session.canAddInput(newInput) {
                 self.session.addInput(newInput)
                 self.activeInput = newInput
+                let displayZoom = self.setDefaultZoom(for: device)
                 DispatchQueue.main.async {
                     self.cameraPosition = device.position
                     self.flashEnabled = false
-                    self.zoomFactor = 1
+                    self.zoomFactor = displayZoom
                 }
             } else {
                 self.session.addInput(oldInput)
@@ -262,7 +283,7 @@ final class CameraService: ObservableObject {
             )
         }.sorted { lhs, rhs in
             if lhs.supportsHDR != rhs.supportsHDR {
-                return hdrEnabled ? lhs.supportsHDR : !rhs.supportsHDR
+                return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
             }
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
