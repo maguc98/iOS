@@ -60,6 +60,7 @@ final class CameraService: ObservableObject {
     private var photoProcessor: PhotoCaptureProcessor?
     private var movieDelegate: MovieFileRecordingDelegate?
     private var audioInput: AVCaptureDeviceInput?
+    private var isRecordingStartPending = false
     private var recordingStartedAt: Date?
     private var recordingTimer: Timer?
 
@@ -227,14 +228,16 @@ final class CameraService: ObservableObject {
     }
 
     func configureVideo(resolution: String, frameRate: Int, hdrEnabled: Bool) {
-        guard isReady else { return }
+        guard isReady, !isVideoConfigurationInProgress, !isRecordingStartPending else { return }
         isVideoConfigurationInProgress = true
+
         sessionQueue.async { [weak self] in
             guard let self else { return }
             guard let device = self.activeInput?.device, !self.movieOutput.isRecording else {
                 DispatchQueue.main.async { self.isVideoConfigurationInProgress = false }
                 return
             }
+
             self.applyVideoConfiguration(
                 device: device,
                 resolution: resolution,
@@ -257,41 +260,61 @@ final class CameraService: ObservableObject {
             : (width: 1920, height: 1080)
         let requestedFPS = Double(max(24, min(frameRate, 60)))
 
+        // AVFoundation raises NSInvalidArgumentException (not a Swift Error)
+        // when a frame duration falls outside the selected format's exact range.
+        // Preserve the duration supplied by AVFrameRateRange at either boundary,
+        // and use exact rational 1/30 or 1/60 values for the common interior rates.
         let candidates = device.formats.compactMap { format -> (
             format: AVCaptureDevice.Format,
             dimensions: CMVideoDimensions,
+            range: AVFrameRateRange,
             supportsFPS: Bool,
             supportsHDR: Bool,
-            actualFPS: Double
+            actualFPS: Double,
+            frameDuration: CMTime
         )? in
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            guard dimensions.width >= requestedDimensions.width,
-                  dimensions.height >= requestedDimensions.height else { return nil }
+            let width = max(dimensions.width, dimensions.height)
+            let height = min(dimensions.width, dimensions.height)
+            guard width >= requestedDimensions.width,
+                  height >= requestedDimensions.height else { return nil }
 
             let ranges = format.videoSupportedFrameRateRanges
             guard !ranges.isEmpty else { return nil }
 
             let matchingRange = ranges.first {
-                $0.minFrameRate <= requestedFPS && $0.maxFrameRate >= requestedFPS
+                requestedFPS >= $0.minFrameRate && requestedFPS <= $0.maxFrameRate
             }
-            let nearestRange = matchingRange ?? ranges.min {
+            let selectedRange = matchingRange ?? ranges.min {
                 let lhs = abs(min(max(requestedFPS, $0.minFrameRate), $0.maxFrameRate) - requestedFPS)
                 let rhs = abs(min(max(requestedFPS, $1.minFrameRate), $1.maxFrameRate) - requestedFPS)
                 return lhs < rhs
             }!
 
-            let actualFPS = min(max(requestedFPS, nearestRange.minFrameRate), nearestRange.maxFrameRate)
+            let actualFPS = min(max(requestedFPS, selectedRange.minFrameRate), selectedRange.maxFrameRate)
+            let frameDuration: CMTime
+            if abs(actualFPS - selectedRange.maxFrameRate) < 0.02 {
+                frameDuration = selectedRange.minFrameDuration
+            } else if abs(actualFPS - selectedRange.minFrameRate) < 0.02 {
+                frameDuration = selectedRange.maxFrameDuration
+            } else if abs(actualFPS - actualFPS.rounded()) < 0.01 {
+                frameDuration = CMTime(value: 1, timescale: CMTimeScale(Int(actualFPS.rounded())))
+            } else {
+                frameDuration = selectedRange.minFrameDuration
+            }
+
+            guard frameDuration.isValid, !frameDuration.isIndefinite else { return nil }
+
             return (
                 format: format,
                 dimensions: dimensions,
+                range: selectedRange,
                 supportsFPS: matchingRange != nil,
                 supportsHDR: format.isVideoHDRSupported,
-                actualFPS: actualFPS
+                actualFPS: actualFPS,
+                frameDuration: frameDuration
             )
         }.sorted { lhs, rhs in
-            // Preserve the requested frame rate first. HDR is selected among
-            // formats that can actually deliver that rate, avoiding an HDR
-            // fallback to 30 FPS when the user explicitly chose 60 FPS.
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
             }
@@ -301,7 +324,7 @@ final class CameraService: ObservableObject {
             let lhsArea = Int64(lhs.dimensions.width) * Int64(lhs.dimensions.height)
             let rhsArea = Int64(rhs.dimensions.width) * Int64(rhs.dimensions.height)
             if lhsArea != rhsArea { return lhsArea < rhsArea }
-            return lhs.actualFPS > rhs.actualFPS
+            return abs(lhs.actualFPS - requestedFPS) < abs(rhs.actualFPS - requestedFPS)
         }
 
         guard let chosen = candidates.first else {
@@ -312,18 +335,19 @@ final class CameraService: ObservableObject {
             return false
         }
 
-        let frameDuration = CMTime(
-            seconds: 1.0 / max(1.0, chosen.actualFPS),
-            preferredTimescale: 1_000_000_000
-        )
+        // Validate the exact rational duration against this exact format before
+        // touching AVCaptureDevice's Objective-C properties.
+        let durationIsSupported =
+            CMTimeCompare(chosen.frameDuration, chosen.range.minFrameDuration) >= 0 &&
+            CMTimeCompare(chosen.frameDuration, chosen.range.maxFrameDuration) <= 0
+        guard durationIsSupported else {
+            DispatchQueue.main.async {
+                self.isVideoConfigurationInProgress = false
+                self.errorMessage = "当前视频格式不接受所选帧率，请切换到 30 FPS 或 1080P。"
+            }
+            return false
+        }
 
-        // Format, HDR and frame duration are changed as one session transaction.
-        // In particular, iOS 18+ can enable automatic frame-rate adjustment.
-        // Setting manual frame durations while that mode is enabled raises an
-        // Objective-C exception (and terminates the app), so explicitly turn it
-        // off after selecting the new format and before writing frame durations.
-        session.beginConfiguration()
-        var configurationError: Error?
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
@@ -332,37 +356,34 @@ final class CameraService: ObservableObject {
                 device.activeFormat = chosen.format
             }
 
+            // Selecting an activeFormat resets auto frame-rate adjustment on
+            // current iOS versions. If it remains enabled, explicitly turn it
+            // off before setting fixed frame durations.
             if #available(iOS 18.0, *), device.isAutoVideoFrameRateEnabled {
                 device.isAutoVideoFrameRateEnabled = false
             }
 
+            let enableHDR = hdrEnabled && chosen.supportsHDR
             device.automaticallyAdjustsVideoHDREnabled = false
-            if chosen.supportsHDR {
-                device.isVideoHDREnabled = hdrEnabled
-            } else if device.isVideoHDREnabled {
-                device.isVideoHDREnabled = false
+            if device.isVideoHDREnabled != enableHDR {
+                device.isVideoHDREnabled = enableHDR
             }
 
-            device.activeVideoMinFrameDuration = frameDuration
-            device.activeVideoMaxFrameDuration = frameDuration
+            device.activeVideoMinFrameDuration = chosen.frameDuration
+            device.activeVideoMaxFrameDuration = chosen.frameDuration
         } catch {
-            configurationError = error
-        }
-        session.commitConfiguration()
-
-        if let configurationError {
             DispatchQueue.main.async {
                 self.isVideoConfigurationInProgress = false
-                self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
+                self.errorMessage = "无法应用视频参数：\(error.localizedDescription)"
             }
             return false
         }
 
-        let actualResolution = chosen.dimensions.width >= 3840 && chosen.dimensions.height >= 2160
+        let actualResolution = max(chosen.dimensions.width, chosen.dimensions.height) >= 3840
             ? "4K"
             : "1080P"
-        let actualFrameRate = Int(chosen.actualFPS.rounded())
-        let actualHDR = chosen.supportsHDR && device.isVideoHDREnabled
+        let actualFrameRate = Int((1.0 / CMTimeGetSeconds(chosen.frameDuration)).rounded())
+        let actualHDR = hdrEnabled && chosen.supportsHDR && device.isVideoHDREnabled
         let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
@@ -385,39 +406,44 @@ final class CameraService: ObservableObject {
             }
         }
 
-        // Use HEVC only when the active movie connection explicitly advertises
-        // support for the codec key and the codec itself.
-        if let connection = movieOutput.connection(with: .video),
-           movieOutput.availableVideoCodecTypes.contains(.hevc),
-           movieOutput.supportedOutputSettingsKeys(for: connection).contains(AVVideoCodecKey) {
-            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
-        }
-
+        // Keep AVCaptureMovieFileOutput on its system-selected encoder settings.
+        // Passing an unsupported AVVideoCodecKey is an Objective-C exception,
+        // so avoid overriding the output's settings during live reconfiguration.
         return true
     }
 
     func startRecording(resolution: String, frameRate: Int, hdrEnabled: Bool) {
-        guard isReady else { return }
+        guard isReady, !isRecording, !isRecordingStartPending else { return }
+        guard !isVideoConfigurationInProgress else {
+            errorMessage = "相机正在切换视频参数，请稍后再开始录像。"
+            return
+        }
+        isRecordingStartPending = true
+        isVideoConfigurationInProgress = true
 
         let beginRecording: (Bool) -> Void = { [weak self] microphoneGranted in
             guard let self else { return }
             self.sessionQueue.async {
                 guard !self.movieOutput.isRecording,
+                      self.session.isRunning,
                       let device = self.activeInput?.device else {
                     DispatchQueue.main.async {
-                        self.errorMessage = "相机仍在切换配置，请稍后再开始录像。"
+                        self.isVideoConfigurationInProgress = false
+                        self.isRecordingStartPending = false
+                        self.errorMessage = "相机尚未准备好，请稍后再开始录像。"
                     }
                     return
                 }
 
-                // Never start the writer unless the requested capture format
-                // has been applied successfully.
                 guard self.applyVideoConfiguration(
                     device: device,
                     resolution: resolution,
                     frameRate: frameRate,
                     hdrEnabled: hdrEnabled
-                ) else { return }
+                ) else {
+                    DispatchQueue.main.async { self.isRecordingStartPending = false }
+                    return
+                }
 
                 if microphoneGranted, self.audioInput == nil,
                    let audioDevice = AVCaptureDevice.default(for: .audio),
@@ -430,8 +456,10 @@ final class CameraService: ObservableObject {
                     self.applyPortraitOrientation()
                 }
 
-                guard self.movieOutput.connection(with: .video) != nil else {
+                guard let connection = self.movieOutput.connection(with: .video),
+                      connection.isEnabled else {
                     DispatchQueue.main.async {
+                        self.isRecordingStartPending = false
                         self.errorMessage = "录像通道尚未准备好，请重新尝试。"
                     }
                     return
@@ -449,6 +477,7 @@ final class CameraService: ObservableObject {
                 self.movieOutput.startRecording(to: url, recordingDelegate: delegate)
 
                 DispatchQueue.main.async {
+                    self.isRecordingStartPending = false
                     self.isRecording = true
                     self.recordingStartedAt = Date()
                     self.recordingDuration = 0
@@ -484,6 +513,7 @@ final class CameraService: ObservableObject {
     private func finishRecording(at url: URL, error: Error?) {
         DispatchQueue.main.async {
             self.isRecording = false
+            self.isRecordingStartPending = false
             self.recordingTimer?.invalidate()
             self.recordingTimer = nil
             self.recordingStartedAt = nil
