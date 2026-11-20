@@ -4111,6 +4111,12 @@ private struct AlbumInfoSheet: View {
     }
 }
 
+private extension URL {
+    var isVideoMedia: Bool {
+        ["mov", "mp4"].contains(pathExtension.lowercased())
+    }
+}
+
 private struct ShutterButtonStyle: View {
     let outerColors: [Color]
     let isVideo: Bool
