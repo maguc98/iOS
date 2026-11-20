@@ -55,12 +55,8 @@ struct CameraScreen: View {
     var body: some View {
         ZStack {
             // Soft macaron canvas fills everything outside the live viewfinder.
-            LinearGradient(
-                colors: selectedPalette.background.map { Color(hex: $0) },
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            Color(hex: selectedPalette.background[0])
+                .ignoresSafeArea()
 
             // Keep the live camera image strictly inside the viewfinder window.
             // The surrounding area remains the macaron-colored app canvas.
@@ -86,7 +82,6 @@ struct CameraScreen: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(Color(hex: 0xFF4058).opacity(camera.isRecording ? 1 : 0), lineWidth: 4)
-                            .shadow(color: Color(hex: 0xFF4058).opacity(camera.isRecording ? 0.55 : 0), radius: camera.isRecording ? 9 : 0)
                             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: camera.isRecording)
                     }
                     .overlay(alignment: .topLeading) {
@@ -101,7 +96,7 @@ struct CameraScreen: View {
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(.ultraThinMaterial, in: Capsule())
+                            .background(Color(hex: 0xFCEBF1), in: Capsule())
                             .padding(12)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.92, anchor: .topLeading)),
@@ -238,7 +233,6 @@ struct CameraScreen: View {
                                 style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
                             )
                             .frame(width: 58, height: 58)
-                            .shadow(color: .black.opacity(0.28), radius: 3)
                             .position(manualFocusIndicatorPoint)
                             .transition(.scale(scale: 0.70).combined(with: .opacity))
                             .allowsHitTesting(false)
@@ -260,12 +254,11 @@ struct CameraScreen: View {
                         .padding(5)
                         .background {
                             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .fill(Color.white.opacity(0.92))
+                                .fill(Color.white)
                                 .overlay {
                                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                                         .stroke(Color.white.opacity(0.98), lineWidth: 1)
                                 }
-                                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                         .position(x: width / 2, y: height - 55)
@@ -348,7 +341,6 @@ struct CameraScreen: View {
                 Text("\(countdown)")
                     .font(.system(size: 100, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.4), radius: 18)
                     .transition(.scale.combined(with: .opacity))
             }
 
@@ -401,7 +393,8 @@ struct CameraScreen: View {
         .sheet(isPresented: $showSettings) {
             settingsSheet
                 .presentationDetents([.medium, .large])
-                .presentationCornerRadius(28)
+                .presentationCornerRadius(18)
+                .presentationBackground(Color(hex: 0xF1ECFA))
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAlbum) {
@@ -410,7 +403,8 @@ struct CameraScreen: View {
                 onDelete: { url in camera.deleteAlbumMedia(at: url) }
             )
             .presentationDetents([.large])
-            .presentationCornerRadius(28)
+            .presentationCornerRadius(18)
+            .presentationBackground(Color(hex: 0xF1ECFA))
             .presentationDragIndicator(.visible)
         }
         .onChange(of: camera.captureID) { _, _ in
@@ -577,9 +571,7 @@ struct CameraScreen: View {
         .padding(.horizontal, 13)
         .frame(maxWidth: .infinity)
         .frame(height: 38)
-        .background(Color.white.opacity(0.76), in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
-        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 8, y: 3)
+        .background(Color.white, in: Capsule())
         .contentShape(Capsule())
         // A single gesture recognizer distinguishes a tap from a vertical swipe.
         // This avoids Button and DragGesture competing for the same touch sequence.
@@ -667,7 +659,7 @@ struct CameraScreen: View {
             .foregroundStyle(Color(hex: 0x3D4352))
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 36)
-            .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(Color.white, lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -699,9 +691,8 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white, lineWidth: 1))
-        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 2)
     }
 
     private var superResolutionPicker: some View {
@@ -738,9 +729,8 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white, lineWidth: 1))
-        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 2)
     }
 
     private var focusStatusTitle: String {
@@ -809,7 +799,7 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.black.opacity(0.48), in: Capsule())
+        .background(Color(hex: 0x3D4352), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
     }
 
@@ -823,9 +813,7 @@ struct CameraScreen: View {
         }
         .padding(5)
         .padding(4)
-        .background(Color.white.opacity(0.76), in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
-        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
+        .background(Color.white, in: Capsule())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.32)
                 .sequenced(before: DragGesture(minimumDistance: 0))
@@ -890,7 +878,6 @@ struct CameraScreen: View {
                         .fill(Color(hex: 0xF16F89))
                         .frame(width: 9, height: 9)
                         .overlay(Circle().stroke(.white, lineWidth: 1.5))
-                        .shadow(color: Color(hex: 0xF16F89).opacity(0.42), radius: 4)
                         .position(x: zoomTrackPosition(zoom, width: geometry.size.width), y: 4)
                 }
             }
@@ -898,12 +885,11 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(Color.white.opacity(0.94), lineWidth: 1)
         )
-        .shadow(color: Color(hex: 0x667386).opacity(0.18), radius: 10, y: 4)
         .allowsHitTesting(false)
     }
 
@@ -970,14 +956,14 @@ struct CameraScreen: View {
                                     .offset(x: 19, y: -19)
                             }
                         }
-                        .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                     Spacer()
                     Button(action: triggerAutofocus) {
                         ZStack(alignment: .topTrailing) {
                             Circle()
-                                .fill(Color.white.opacity(0.86))
+                                .fill(Color.white)
                                 .frame(width: 48, height: 48)
                                 .overlay(Circle().stroke(Color.white, lineWidth: 1))
                             Image(systemName: "viewfinder")
@@ -1050,7 +1036,7 @@ struct CameraScreen: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 8)
                 .frame(height: 34)
-                .background(Color.white.opacity(0.88), in: Capsule())
+                .background(Color.white, in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
@@ -1082,7 +1068,7 @@ struct CameraScreen: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 8)
                 .frame(height: 30)
-                .background(Color.white.opacity(0.82), in: Capsule())
+                .background(Color.white, in: Capsule())
             }
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
@@ -1115,14 +1101,12 @@ struct CameraScreen: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color(hex: 0x596171))
                     .frame(width: 28, height: 28)
-                    .background(Color.white.opacity(0.82), in: Circle())
+                    .background(Color.white, in: Circle())
             }
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
-        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.10), radius: 8, y: 2)
+        .background(Color(hex: 0xFCEBF1), in: Capsule())
     }
 
     private var modeFooter: some View {
@@ -1157,10 +1141,10 @@ struct CameraScreen: View {
                 .foregroundStyle(Color(hex: 0xFFE45E))
             Text("让 POP CAM 看见精彩")
                 .font(.system(size: 19, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(hex: 0x3D4352))
             Text("开启相机权限后，就可以开始拍照啦。")
                 .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(Color(hex: 0x596171))
             Button("打开系统设置") {
                 guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                 UIApplication.shared.open(url)
@@ -1173,7 +1157,7 @@ struct CameraScreen: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
         .padding(28)
     }
 
@@ -1194,7 +1178,7 @@ struct CameraScreen: View {
                         .foregroundStyle(Color(hex: 0x3D4352))
                         .padding(.horizontal, 15)
                         .padding(.vertical, 9)
-                        .background(Color.white.opacity(0.82), in: Capsule())
+                        .background(Color.white, in: Capsule())
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -1256,7 +1240,7 @@ struct CameraScreen: View {
                     }
                 }
                 .padding(14)
-                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(.white, lineWidth: 1))
 
                 VStack(spacing: 0) {
@@ -1315,7 +1299,7 @@ struct CameraScreen: View {
                     )
                 }
                 .padding(.horizontal, 14)
-                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(.white, lineWidth: 1))
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -1335,7 +1319,7 @@ struct CameraScreen: View {
                         }
                 }
                 .padding(16)
-                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -1354,17 +1338,11 @@ struct CameraScreen: View {
                         }
                 }
                 .padding(16)
-                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .padding(22)
         }
-        .background(
-            LinearGradient(
-                colors: selectedPalette.background.map { Color(hex: $0) },
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+         .background(Color(hex: selectedPalette.background[0]))
         .foregroundStyle(Color(hex: 0x3D4352))
     }
 
@@ -1659,8 +1637,6 @@ private struct LocalMediaAlbumSheet: View {
                             ),
                             in: Capsule()
                         )
-                        .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
-                        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.13), radius: 10, y: 4)
                 }
                 .buttonStyle(.plain)
             }
@@ -1683,7 +1659,7 @@ private struct LocalMediaAlbumSheet: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 42)
-                .background(Color.white.opacity(0.78), in: Capsule())
+                .background(Color.white, in: Capsule())
                 .overlay(Capsule().stroke(Color.white, lineWidth: 1))
             }
         }
@@ -1762,7 +1738,6 @@ private struct LocalMediaAlbumSheet: View {
                             in: Circle()
                         )
                         .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
-                        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 12, y: 4)
                 }
                 .buttonStyle(.plain)
             }
@@ -1770,31 +1745,12 @@ private struct LocalMediaAlbumSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 9)
         .padding(.bottom, 6)
-        .background {
-            LinearGradient(
-                colors: [Color(hex: 0xEAF4FA).opacity(0), Color(hex: 0xF1ECFA).opacity(0.92)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea(edges: .bottom)
-        }
+        .background(Color(hex: 0xF1ECFA).ignoresSafeArea(edges: .bottom))
     }
 
     private var albumDockBackground: some View {
         Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(hex: 0xE8F4FA).opacity(0.97),
-                        Color(hex: 0xF1ECFA).opacity(0.97),
-                        Color(hex: 0xFCEBF1).opacity(0.94)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1.2))
-            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 16, y: 6)
+            .fill(Color(hex: 0xE8F4FA))
     }
 
     private func albumTabButton(_ tab: AlbumMainTab, title: String, symbol: String) -> some View {
@@ -1818,7 +1774,6 @@ private struct LocalMediaAlbumSheet: View {
                 if selectedTab == tab {
                     Capsule()
                         .fill(Color.white.opacity(0.70))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.88), lineWidth: 0.8))
                 }
             }
         }
@@ -1831,15 +1786,10 @@ private struct LocalMediaAlbumSheet: View {
             .foregroundStyle(Color(hex: 0x52647A))
             .frame(width: 44, height: 44)
             .background(
-                LinearGradient(
-                    colors: [Color(hex: 0xF1ECFA), Color(hex: 0xE8F4FA)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
+                Color(hex: 0xE8F4FA),
                 in: Circle()
             )
             .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 9, y: 3)
     }
 
     private func selectionMark(isSelected: Bool) -> some View {
@@ -1847,7 +1797,6 @@ private struct LocalMediaAlbumSheet: View {
             .font(.system(size: 21, weight: .semibold))
             .symbolRenderingMode(.palette)
             .foregroundStyle(isSelected ? Color.white : Color.white, Color(hex: 0x78B8EE))
-            .shadow(color: .black.opacity(0.30), radius: 3, y: 1)
     }
 
     private func toggleSelection(for url: URL) {
@@ -1919,7 +1868,6 @@ private struct LocalAlbumThumbnail: View {
                     Text(videoDurationLabel)
                         .font(.system(size: 10, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.85), radius: 3, y: 1)
                         .padding(.trailing, 6)
                         .padding(.bottom, 5)
                 }
@@ -2049,15 +1997,9 @@ private struct LocalAlbumDetailView: View {
             .frame(maxWidth: 176)
             .frame(height: 48)
             .background(
-                LinearGradient(
-                    colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
+                Color(hex: 0xE8F4FA),
                 in: Capsule()
             )
-            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 10, y: 4)
 
             Spacer(minLength: 0)
 
@@ -2157,15 +2099,9 @@ private struct LocalAlbumDetailView: View {
             .font(.system(size: 22, weight: .semibold))
             .frame(width: 188)
             .background(
-                LinearGradient(
-                    colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
+                Color(hex: 0xE8F4FA),
                 in: Capsule()
             )
-            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 11, y: 4)
 
             Button {
                 showDeleteConfirmation = true
@@ -2193,7 +2129,6 @@ private struct LocalAlbumDetailView: View {
                 in: Circle()
             )
             .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 10, y: 4)
     }
 
     private func toggleFavorite() {
@@ -2367,7 +2302,6 @@ private struct ShutterButtonStyle: View {
             Circle()
                 .fill(LinearGradient(colors: outerColors, startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 82, height: 82)
-                .shadow(color: outerColors.first?.opacity(0.34) ?? .clear, radius: 16, y: 5)
             Circle()
                 .fill(Color.white)
                 .frame(width: 64, height: 64)
@@ -2423,7 +2357,6 @@ private struct MultiPointAutofocusOverlay: View {
                         style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round)
                     )
                     .frame(width: markerSize, height: markerSize)
-                    .shadow(color: Color(hex: 0x40E878).opacity(0.52), radius: 4)
                     .scaleEffect(min(1.08, 0.94 + point.strength / 600))
                     .position(
                         x: min(max(point.location.x * geometry.size.width, horizontalInset), geometry.size.width - horizontalInset),
@@ -2476,9 +2409,7 @@ private struct HeaderIcon: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(active ? tint : Color(hex: 0x3D4352))
             .frame(width: 36, height: 36)
-            .background(Color.white.opacity(0.78), in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.94), lineWidth: 1))
-            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 3)
+            .background(Color(hex: 0xF1ECFA), in: Circle())
     }
 }
 
@@ -2547,7 +2478,6 @@ private struct StabilizationPreviewHUD: View {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .stroke(Color.white.opacity(0.92), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         }
         .accessibilityLabel("防抖取景监视器，绿色框根据设备姿态动态移动，表示估算的稳定取景范围")
     }
@@ -2766,15 +2696,14 @@ private struct MotionStatusWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .fill(Color.white)
+                
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(Color.white, lineWidth: 1.2)
         }
-        .shadow(color: Color(hex: 0x667386).opacity(0.18), radius: 10, y: 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("运动状态窗口：\(isLevel ? "水平" : "未水平")，倾斜角度 \(String(format: "%.1f", tiltDegrees)) 度，晃动 \(shakeDescription)，防抖\(stabilizationDescription)")
     }
