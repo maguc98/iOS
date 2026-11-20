@@ -22,6 +22,10 @@ struct CameraScreen: View {
     @State private var focusIndicatorPoint: CGPoint?
     @State private var focusIndicatorID = 0
     @State private var focusZonesVisible = false
+    @State private var selectedVideoResolution = "4K"
+    @State private var selectedFrameRate = "60"
+    @State private var hdrEnabled = true
+    @State private var isRecording = false
 
     private var selectedPalette: MacaronPalette {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
@@ -44,7 +48,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.465
+                let centerY = previewGeometry.size.height * 0.535
 
                 ZStack {
                     Group {
@@ -166,7 +170,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.465
+                                y: maskGeometry.size.height * 0.535
                             )
                     }
                 }
@@ -185,6 +189,8 @@ struct CameraScreen: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     header
+                    captureFormatBar
+                        .padding(.top, 14)
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -603,93 +609,156 @@ struct CameraScreen: View {
     }
 
     private var shutterControls: some View {
-        HStack(alignment: .center) {
-            Button {
-                showReview = camera.capturedImage != nil
-            } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(.white.opacity(0.18))
-                        .frame(width: 48, height: 48)
-                    if let image = camera.capturedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 44, height: 44)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else {
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x596171))
+        GeometryReader { geometry in
+            ZStack {
+                HStack {
+                    Button {
+                        showReview = camera.capturedImage != nil
+                    } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.white.opacity(0.18))
+                                .frame(width: 48, height: 48)
+                            if let image = camera.capturedImage {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            } else {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 19, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0x596171))
+                            }
+                        }
+                        .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
                     }
-                }
-                .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(camera.capturedImage == nil)
-            .opacity(camera.capturedImage == nil ? 0.75 : 1)
-
-            HStack(spacing: 12) {
-                Button(action: takePhoto) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(hex: 0xFFE45E), Color(hex: 0xFF8A45), Color(hex: 0xFF72A6)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 82, height: 82)
-                            .shadow(color: Color(hex: 0xFF8A45).opacity(0.38), radius: 18, y: 6)
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 64, height: 64)
-                        Circle()
-                            .stroke(Color(hex: 0xFF8A45).opacity(0.2), lineWidth: 1)
-                            .frame(width: 56, height: 56)
+                    .buttonStyle(.plain)
+                    .disabled(camera.capturedImage == nil)
+                    .opacity(camera.capturedImage == nil ? 0.75 : 1)
+                    Spacer()
+                    Button(action: triggerAutofocus) {
+                        ZStack(alignment: .topTrailing) {
+                            Circle()
+                                .fill(Color.white.opacity(0.86))
+                                .frame(width: 48, height: 48)
+                                .overlay(Circle().stroke(Color.white, lineWidth: 1))
+                            Image(systemName: "viewfinder")
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x3D4352))
+                                .frame(width: 48, height: 48)
+                            Circle()
+                                .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xAAB3BE))
+                                .frame(width: 8, height: 8)
+                                .overlay(Circle().stroke(Color.white, lineWidth: 1.2))
+                                .offset(x: 1, y: -1)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .disabled(camera.focusStatus == .focusing)
+                    .accessibilityLabel("自动对焦")
                 }
-                .buttonStyle(.plain)
 
-                Button(action: triggerAutofocus) {
-                    ZStack(alignment: .topTrailing) {
-                        Circle()
-                            .fill(Color.white.opacity(0.86))
-                            .frame(width: 42, height: 42)
-                            .overlay(Circle().stroke(Color.white, lineWidth: 1))
-                        Image(systemName: "viewfinder")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x3D4352))
-                            .frame(width: 42, height: 42)
-                        Circle()
-                            .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xAAB3BE))
-                            .frame(width: 8, height: 8)
-                            .overlay(Circle().stroke(Color.white, lineWidth: 1.2))
-                            .offset(x: 1, y: -1)
+                HStack(spacing: 26) {
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                            isRecording.toggle()
+                        }
+                    } label: {
+                        ShutterButtonStyle(
+                            outerColors: [Color(hex: 0xFF9AA2), Color(hex: 0xFF6B78)],
+                            isVideo: true,
+                            isRecording: isRecording
+                        )
                     }
-                }
-                .buttonStyle(.plain)
-                .disabled(camera.focusStatus == .focusing)
-                .accessibilityLabel("自动对焦")
-            }
-            .frame(maxWidth: .infinity)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isRecording ? "停止录制" : "开始录制")
 
-            Button {
-                camera.switchCamera()
-            } label: {
-                Image(systemName: "camera.rotate.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x596171))
-                    .frame(width: 48, height: 48)
-                    .background(Color.white.opacity(0.58), in: Circle())
+                    Button(action: takePhoto) {
+                        ShutterButtonStyle(
+                            outerColors: [Color(hex: 0xFFE45E), Color(hex: 0xFF72A6)],
+                            isVideo: false,
+                            isRecording: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("拍照")
+                }
+                .frame(maxWidth: .infinity)
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .disabled(!camera.isReady)
         }
+        .frame(height: 88)
         .padding(.top, 2)
+    }
+
+    private var captureFormatBar: some View {
+        HStack(spacing: 7) {
+            Menu {
+                Button("4K") { selectedVideoResolution = "4K" }
+                Button("1080P") { selectedVideoResolution = "1080P" }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedVideoResolution)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 13)
+                .frame(height: 30)
+                .background(Color.white.opacity(0.82), in: Capsule())
+            }
+
+            Menu {
+                Button("60 FPS") { selectedFrameRate = "60" }
+                Button("30 FPS") { selectedFrameRate = "30" }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("\(selectedFrameRate) FPS")
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                }
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 13)
+                .frame(height: 30)
+                .background(Color.white.opacity(0.82), in: Capsule())
+            }
+
+            Button {
+                hdrEnabled.toggle()
+            } label: {
+                Text("HDR")
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                    .padding(.horizontal, 16)
+                    .frame(height: 30)
+                    .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color.white.opacity(0.72), in: Capsule())
+            }
+
+            Spacer(minLength: 0)
+            Text("H.265")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x778091))
+            Rectangle().fill(Color(hex: 0xC9D4DE)).frame(width: 1, height: 18)
+            Text("10-bit")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x778091))
+            Menu {
+                Button("H.265") {}
+                Button("10-bit HDR") {}
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x596171))
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.82), in: Circle())
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color.white.opacity(0.62), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.10), radius: 8, y: 2)
     }
 
     private var modeFooter: some View {
@@ -942,6 +1011,50 @@ struct CameraScreen: View {
             }
             withAnimation(.easeOut(duration: 0.2)) { countdown = nil }
             camera.capturePhoto()
+        }
+    }
+}
+
+private struct ShutterButtonStyle: View {
+    let outerColors: [Color]
+    let isVideo: Bool
+    let isRecording: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(colors: outerColors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 82, height: 82)
+                .shadow(color: outerColors.first?.opacity(0.34) ?? .clear, radius: 16, y: 5)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 64, height: 64)
+            if isVideo {
+                if isRecording {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color(hex: 0xFF5967))
+                        .frame(width: 22, height: 22)
+                } else {
+                    HStack(spacing: 1) {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color(hex: 0xFF5967))
+                            .frame(width: 19, height: 16)
+                        Path { path in
+                            path.move(to: CGPoint(x: 0, y: 3))
+                            path.addLine(to: CGPoint(x: 10, y: 0))
+                            path.addLine(to: CGPoint(x: 10, y: 16))
+                            path.addLine(to: CGPoint(x: 0, y: 13))
+                            path.closeSubpath()
+                        }
+                        .fill(Color(hex: 0xFF5967))
+                        .frame(width: 10, height: 16)
+                    }
+                }
+            } else {
+                Circle()
+                    .stroke(Color(hex: 0xFF8A45).opacity(0.20), lineWidth: 1)
+                    .frame(width: 56, height: 56)
+            }
         }
     }
 }
