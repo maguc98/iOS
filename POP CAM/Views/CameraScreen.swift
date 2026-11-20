@@ -1234,7 +1234,8 @@ private struct MultiPointAutofocusOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+            ForEach(Array(points.enumerated()), id: \.offset) { item in
+                let point = item.element
                 AutofocusPointBracket()
                     .stroke(
                         Color(hex: 0x63F58B),
