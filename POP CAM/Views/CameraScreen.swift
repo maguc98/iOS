@@ -100,27 +100,6 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if isToolPanelExpanded {
-                        Group {
-                            switch activeTool {
-                            case .filters:
-                                filterPicker
-                            case .superResolution:
-                                superResolutionPicker
-                            case .autofocus:
-                                autofocusPicker
-                            }
-                        }
-                        .frame(width: width - 20)
-                        .position(
-                            x: width / 2,
-                            y: activeTool == .superResolution ? height * 0.58 : height * 0.72
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .zIndex(20)
-                        .allowsHitTesting(true)
-                    }
-
                     if let focusIndicatorPoint {
                         FocusReticle()
                             .stroke(Color(hex: 0x32D46A), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
@@ -178,6 +157,24 @@ struct CameraScreen: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     header
+                    if isToolPanelExpanded {
+                        Group {
+                            switch activeTool {
+                            case .filters:
+                                filterPicker
+                            case .superResolution:
+                                superResolutionPicker
+                            case .autofocus:
+                                autofocusPicker
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(maxHeight: 112)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(30)
+                    }
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -383,43 +380,41 @@ struct CameraScreen: View {
     }
 
     private var autofocusPicker: some View {
-        VStack(spacing: 10) {
-            Button {
-                focusZonesVisible = true
-                camera.focus(at: CGPoint(x: 0.5, y: 0.5))
-            } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: "viewfinder")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text(camera.focusStatus == .focusing ? "正在对焦" :
-                         camera.focusStatus == .focused ? "对焦完成" : "自动对焦")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                    Spacer()
-                    if camera.focusStatus == .focusing {
-                        ProgressView().tint(Color(hex: 0x32D46A))
-                    } else {
-                        Circle()
-                            .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xA5B0BD))
-                            .frame(width: 8, height: 8)
-                    }
+        Button {
+            focusZonesVisible = true
+            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(camera.focusStatus == .focusing ? "正在对焦" :
+                     camera.focusStatus == .focused ? "对焦完成" : "自动对焦")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                Spacer()
+                if camera.focusStatus == .focusing {
+                    ProgressView().tint(Color(hex: 0x32D46A))
+                } else {
+                    Circle()
+                        .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xA5B0BD))
+                        .frame(width: 7, height: 7)
                 }
-                .foregroundStyle(Color(hex: 0x3D4352))
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Color.white, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(Color.white.opacity(0.90), in: Capsule())
+            .overlay(Capsule().stroke(Color.white, lineWidth: 1))
         }
-        .padding(8)
-        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .buttonStyle(.plain)
+        .padding(6)
+        .background(Color.white.opacity(0.72), in: Capsule())
     }
 
     private var filterPicker: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Label("选择滤镜", systemImage: "camera.filters")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Label("滤镜", systemImage: "camera.filters")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: 0x3D4352))
                 Spacer()
                 Button {
@@ -427,84 +422,63 @@ struct CameraScreen: View {
                         isToolPanelExpanded = false
                     }
                 } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold))
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color(hex: 0x596171))
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.72), in: Circle())
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
             }
             FilterTray(selection: $camera.selectedFilter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 76)
+                .frame(height: 54)
                 .contentShape(Rectangle())
         }
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.88))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.95), lineWidth: 1)
-                }
-                .shadow(color: Color(hex: 0x8E9AAC).opacity(0.14), radius: 12, y: 4)
-        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white, lineWidth: 1))
+        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 2)
     }
 
     private var superResolutionPicker: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack {
-                Label("AI 超分设置", systemImage: "sparkles")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Label("AI 超分", systemImage: "sparkles")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: 0x3D4352))
-                Spacer()
+                Toggle("拍摄后自动增强", isOn: $superResolutionEnabled)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .labelsHidden()
+                    .tint(Color(hex: selectedPalette.accent))
+                    .scaleEffect(0.82, anchor: .trailing)
+                Text("自动增强")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x596171))
+                Spacer(minLength: 2)
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         isToolPanelExpanded = false
                         focusZonesVisible = false
                     }
                 } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold))
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color(hex: 0x596171))
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.72), in: Circle())
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
             }
-
-            Toggle(isOn: $superResolutionEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("拍摄后自动增强")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x3D4352))
-                    Text("关闭时仍可在照片回看页手动增强")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x7D8797))
-                }
+            HStack(spacing: 6) {
+                superResolutionScaleButton(2, subtitle: "更快")
+                superResolutionScaleButton(4, subtitle: "更精细")
             }
-            .tint(Color(hex: selectedPalette.accent))
-
-            HStack(spacing: 8) {
-                superResolutionScaleButton(2, subtitle: "更快 · 文件较小")
-                superResolutionScaleButton(4, subtitle: "更精细 · 更占内存")
-            }
-
-            Text("增强在拍摄完成后执行；原图始终保留。")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color(hex: 0x778091))
         }
-        .padding(11)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.90))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.96), lineWidth: 1)
-                }
-                .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 12, y: 4)
-        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white, lineWidth: 1))
+        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 7, y: 2)
     }
 
     private var focusStatusTitle: String {
