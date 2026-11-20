@@ -303,7 +303,8 @@ final class CameraService: ObservableObject {
 
         do {
             let destinationFolder = try appAlbumDirectory()
-            let filename = "POP_\(Date().formatted(.dateTime.year().month().day().hour().minute().second))_\(UUID().uuidString.prefix(6)).mov"
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let filename = "POP_\(timestamp)_\(UUID().uuidString.prefix(6)).mov"
             let destinationURL = destinationFolder.appendingPathComponent(filename)
             try FileManager.default.moveItem(at: url, to: destinationURL)
             reloadSavedVideos()
