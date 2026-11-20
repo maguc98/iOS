@@ -39,6 +39,7 @@ final class CameraService: ObservableObject {
     @Published private(set) var appliedFrameRate = 0
     @Published private(set) var appliedResolution = ""
     @Published private(set) var videoConfigurationRevision = 0
+    @Published private(set) var isVideoStabilizationActive = false
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
@@ -140,6 +141,7 @@ final class CameraService: ObservableObject {
             self.session.commitConfiguration()
             self.applyPortraitOrientation()
             self.session.startRunning()
+            self.applyStabilizationOnSessionQueue(enabled: UserDefaults.standard.bool(forKey: "popcam.videoStabilizationEnabled"))
 
             DispatchQueue.main.async {
                 self.isReady = true
@@ -279,6 +281,37 @@ final class CameraService: ObservableObject {
             }
             self.session.commitConfiguration()
             self.applyPortraitOrientation()
+        }
+    }
+
+    /// Applies AVFoundation's real capture stabilization to both the live
+    /// video-data connection and the recorded movie connection.
+    private func applyStabilizationOnSessionQueue(enabled: Bool) {
+        let connections = [
+            videoOutput.connection(with: .video),
+            movieOutput.connection(with: .video)
+        ].compactMap { $0 }
+        var applied = false
+        for connection in connections where connection.isVideoStabilizationSupported {
+            connection.preferredVideoStabilizationMode = enabled ? .standard : .off
+            applied = applied || connection.activeVideoStabilizationMode != .off
+        }
+        DispatchQueue.main.async {
+            self.isVideoStabilizationActive = enabled && applied
+        }
+    }
+
+    func setVideoStabilizationEnabled(_ enabled: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.applyStabilizationOnSessionQueue(enabled: enabled)
+            DispatchQueue.main.async {
+                if enabled && !self.isVideoStabilizationActive {
+                    self.errorMessage = "当前相机模式不支持视频防抖。"
+                } else if !enabled {
+                    self.errorMessage = nil
+                }
+            }
         }
     }
 
