@@ -3567,7 +3567,23 @@ private final class CameraLevelMonitor: ObservableObject {
 
             let absoluteRoll = Self.degrees(motion.attitude.roll)
             let absolutePitch = Self.degrees(motion.attitude.pitch)
-            self.rollDegrees += (absoluteRoll - self.rollDegrees) * 0.28
+            let physicalOrientation = UIDevice.current.orientation
+            let screenRelativeRoll: Double
+            switch physicalOrientation {
+            case .portrait:
+                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll - 90)
+            case .portraitUpsideDown:
+                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll + 90)
+            case .landscapeLeft:
+                screenRelativeRoll = Self.wrappedDegrees(absolutePitch - 90)
+            case .landscapeRight:
+                screenRelativeRoll = Self.wrappedDegrees(absolutePitch + 90)
+            case .faceUp, .faceDown:
+                screenRelativeRoll = 0
+            default:
+                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll)
+            }
+            self.rollDegrees += (screenRelativeRoll - self.rollDegrees) * 0.28
 
             let combinedTilt = min(90, hypot(absoluteRoll, absolutePitch))
             self.tiltDegrees += (combinedTilt - self.tiltDegrees) * 0.24
