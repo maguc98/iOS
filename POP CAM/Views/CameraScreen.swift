@@ -1497,6 +1497,7 @@ private struct LocalMediaAlbumSheet: View {
     }
 
     private var headerSubtitle: String {
+        if isAddingToCollection { return "选择要添加到相簿的照片" }
         if let activeCollection {
             return "\(activeCollection.paths.count) 个收藏瞬间"
         }
@@ -1562,7 +1563,7 @@ private struct LocalMediaAlbumSheet: View {
                 LocalAlbumDetailView(
                     media: viewerItems,
                     initialURL: selectedURL,
-                    onDelete: onDelete
+                    onDelete: { deletedURL in removeMedia(deletedURL) }
                 )
             }
         }
@@ -1583,7 +1584,7 @@ private struct LocalMediaAlbumSheet: View {
             Button("删除 \(selectedPaths.count) 项", role: .destructive) {
                 let paths = selectedPaths
                 for url in media where paths.contains(url.path) {
-                    onDelete(url)
+                    removeMedia(url)
                 }
                 selectedPaths.removeAll()
                 isSelecting = false
@@ -2042,6 +2043,7 @@ private struct LocalMediaAlbumSheet: View {
                 }
             }
         }
+        .animation(.spring(response: 0.46, dampingFraction: 0.82), value: memorySet)
     }
 
     private var collectionsContent: some View {
@@ -2386,13 +2388,20 @@ private struct LocalMediaAlbumSheet: View {
         let title = newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         var collections = customCollections
-        let collection = POPCustomCollection(id: UUID().uuidString, title: title, paths: [])
+        let collection = POPCustomCollection(
+            id: UUID().uuidString,
+            title: title,
+            paths: Array(selectedPaths)
+        )
         collections.insert(collection, at: 0)
         saveCollections(collections)
         newCollectionName = ""
         withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             activeCollectionID = collection.id
             selectedTab = .photos
+            selectedPaths.removeAll()
+            isSelecting = false
+            isAddingToCollection = false
         }
     }
 
@@ -2426,6 +2435,20 @@ private struct LocalMediaAlbumSheet: View {
         guard let data = try? JSONEncoder().encode(collections),
               let encoded = String(data: data, encoding: .utf8) else { return }
         collectionsStorage = encoded
+    }
+
+    private func removeMedia(_ url: URL) {
+        onDelete(url)
+
+        var collections = customCollections
+        for index in collections.indices {
+            collections[index].paths.removeAll { $0 == url.path }
+        }
+        saveCollections(collections)
+
+        var favorites = favoritePaths
+        favorites.remove(url.path)
+        favoritePathsStorage = favorites.sorted().joined(separator: "\n")
     }
 
     private static func mediaDate(_ url: URL) -> Date {
