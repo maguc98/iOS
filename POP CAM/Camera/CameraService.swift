@@ -15,6 +15,7 @@ final class CameraService: ObservableObject {
     @Published var isReady = false
     @Published var isAuthorized = false
     @Published var previewImage: CGImage?
+    @Published private(set) var visualMotionEstimate = VisualMotionEstimate()
     @Published var selectedFilter: CameraFilter = .pop {
         didSet { liveProcessor.selectedFilter = selectedFilter }
     }
@@ -51,6 +52,9 @@ final class CameraService: ObservableObject {
         let processor = LivePreviewProcessor()
         processor.onFrame = { [weak self] frame in
             DispatchQueue.main.async { self?.previewImage = frame }
+        }
+        processor.onVisualMotion = { [weak self] estimate in
+            DispatchQueue.main.async { self?.visualMotionEstimate = estimate }
         }
         processor.onAutofocusPoints = { [weak self] points in
             DispatchQueue.main.async { self?.autofocusPoints = points }
