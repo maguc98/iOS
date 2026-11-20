@@ -280,7 +280,9 @@ final class CameraService: ObservableObject {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
 
-            device.isAutoVideoFrameRateEnabled = false
+            if #available(iOS 18.0, *) {
+                device.isAutoVideoFrameRateEnabled = false
+            }
             device.automaticallyAdjustsVideoHDREnabled = false
             if device.activeFormat !== chosen.format {
                 device.activeFormat = chosen.format
