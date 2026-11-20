@@ -27,7 +27,7 @@ struct CameraScreen: View {
     @State private var manualFocusIndicatorPoint: CGPoint?
     @State private var manualFocusIndicatorID = 0
     @State private var selectedVideoResolution = "4K"
-    @State private var selectedFrameRate = "60"
+    @State private var selectedFrameRate = "30"
     @State private var hdrEnabled = true
     @State private var isSyncingVideoControls = false
 
@@ -354,15 +354,40 @@ struct CameraScreen: View {
             guard !isSyncingVideoControls else { return }
             camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
         }
-        .onChange(of: hdrEnabled) { _, _ in
+        .onChange(of: hdrEnabled) { _, enabled in
             guard !isSyncingVideoControls else { return }
-            camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
+            if enabled && selectedFrameRate == "60" {
+                // Dolby Vision HDR on iPhone 12 mini is limited to 30 FPS.
+                // Keep the HDR selection and move the frame rate to 30 FPS.
+                isSyncingVideoControls = true
+                selectedFrameRate = "30"
+                DispatchQueue.main.async {
+                    isSyncingVideoControls = false
+                    camera.configureVideo(
+                        resolution: selectedVideoResolution,
+                        frameRate: 30,
+                        hdrEnabled: true
+                    )
+                }
+            } else {
+                camera.configureVideo(
+                    resolution: selectedVideoResolution,
+                    frameRate: Int(selectedFrameRate) ?? 30,
+                    hdrEnabled: enabled
+                )
+            }
         }
         .onChange(of: camera.isReady) { _, ready in
-            // Keep launch on the camera's native safe format. The selected
-            // recording format is applied when the user changes a format
-            // control or starts recording.
-            if !ready {
+            if ready {
+                // Launch in the intended default recording mode: 4K 30 FPS HDR.
+                // Applying it here also synchronizes the active device format
+                // and the controls before the first recording begins.
+                camera.configureVideo(
+                    resolution: selectedVideoResolution,
+                    frameRate: Int(selectedFrameRate) ?? 30,
+                    hdrEnabled: hdrEnabled
+                )
+            } else {
                 camera.setAutofocusVisualizationEnabled(false)
             }
         }
@@ -1256,15 +1281,14 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
-        let shouldEnable = activeTool != .autofocus
+        // The shutter-side AF control is an action, not an on/off toggle:
+        // tapping it always initiates a fresh center focus operation.
         withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
-            activeTool = shouldEnable ? .autofocus : .filters
+            activeTool = .autofocus
             isToolPanelExpanded = false
         }
-        camera.setAutofocusVisualizationEnabled(shouldEnable && !camera.isExposureFocusLocked)
-        if shouldEnable {
-            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
-        }
+        camera.setAutofocusVisualizationEnabled(true)
+        camera.focus(at: CGPoint(x: 0.5, y: 0.5))
     }
 
     private func projectedAutofocusPoints(in size: CGSize) -> [AutofocusPoint] {
