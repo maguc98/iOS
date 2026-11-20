@@ -22,9 +22,9 @@ struct CameraScreen: View {
     @State private var showLevel = false
     @State private var zoom: Double = 1
     @State private var exposure: Double = 0
-    @State private var focusIndicatorPoint: CGPoint?
-    @State private var focusIndicatorID = 0
     @State private var focusZonesVisible = false
+    @State private var focusZonePoint = CGPoint(x: 0.5, y: 0.5)
+    @State private var focusZoneID = 0
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "60"
     @State private var hdrEnabled = true
@@ -89,18 +89,10 @@ struct CameraScreen: View {
                             x: min(max(location.x / width, 0), 1),
                             y: min(max(location.y / height, 0), 1)
                         )
+                        focusZonePoint = normalizedPoint
+                        focusZoneID += 1
+                        focusZonesVisible = true
                         camera.focus(at: normalizedPoint)
-                        focusIndicatorID += 1
-                        let currentID = focusIndicatorID
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                            focusIndicatorPoint = location
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-                            guard focusIndicatorID == currentID else { return }
-                            withAnimation(.easeOut(duration: 0.25)) {
-                                focusIndicatorPoint = nil
-                            }
-                        }
                     }
 
                     if showGrid {
@@ -125,21 +117,16 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if let focusIndicatorPoint {
-                        FocusReticle()
-                            .stroke(Color(hex: 0x32D46A), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                            .frame(width: 58, height: 58)
-                            .shadow(color: .black.opacity(0.28), radius: 3)
-                            .position(focusIndicatorPoint)
-                            .transition(.scale(scale: 0.72).combined(with: .opacity))
-                            .allowsHitTesting(false)
-                    }
-
                     if focusZonesVisible {
-                        FocusZoneGrid(isFocused: camera.focusStatus == .focused)
-                            .transition(.opacity)
-                            .allowsHitTesting(false)
-                            .zIndex(12)
+                        FocusZoneGrid(
+                            point: focusZonePoint,
+                            isFocused: camera.focusStatus == .focused
+                        )
+                        .frame(width: width, height: height)
+                        .position(x: centerX, y: centerY)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                        .allowsHitTesting(false)
+                        .zIndex(12)
                     }
 
                     if isToolPanelExpanded {
@@ -460,8 +447,10 @@ struct CameraScreen: View {
 
     private var autofocusPicker: some View {
         Button {
+            focusZonePoint = CGPoint(x: 0.5, y: 0.5)
+            focusZoneID += 1
             focusZonesVisible = true
-            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+            camera.focus(at: focusZonePoint)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "viewfinder")
@@ -1077,8 +1066,10 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
+        focusZonePoint = CGPoint(x: 0.5, y: 0.5)
+        focusZoneID += 1
         focusZonesVisible = true
-        camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+        camera.focus(at: focusZonePoint)
     }
 
     private func takePhoto() {
@@ -1237,24 +1228,40 @@ private struct FocusReticle: Shape {
 }
 
 private struct FocusZoneGrid: View {
+    let point: CGPoint
     let isFocused: Bool
+
+    private let cellSize: CGFloat = 30
+    private let spacing: CGFloat = 4
 
     var body: some View {
         GeometryReader { geometry in
+            let centerX = min(max(point.x * geometry.size.width, cellSize * 1.6), geometry.size.width - cellSize * 1.6)
+            let centerY = min(max(point.y * geometry.size.height, cellSize * 1.6), geometry.size.height - cellSize * 1.6)
             ZStack {
                 ForEach(0..<9, id: \.self) { index in
-                    FocusReticle()
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .stroke(
-                            isFocused ? Color(hex: 0x32D46A) : Color.white.opacity(0.92),
-                            style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+                            isFocused ? Color(hex: 0x65F58A) : Color(hex: 0xB8FFB9),
+                            lineWidth: isFocused ? 2.0 : 1.6
                         )
-                        .frame(width: 27, height: 27)
-                        .shadow(color: .black.opacity(0.38), radius: 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color(hex: 0x65F58A).opacity(isFocused ? 0.10 : 0.045))
+                        )
+                        .frame(width: cellSize, height: cellSize)
+                        .shadow(color: Color(hex: 0x48E875).opacity(isFocused ? 0.55 : 0.28), radius: 4)
                         .position(
-                            x: geometry.size.width * CGFloat(index % 3 + 1) / 4,
-                            y: geometry.size.height * CGFloat(index / 3 + 1) / 4
+                            x: centerX + CGFloat(index % 3 - 1) * (cellSize + spacing),
+                            y: centerY + CGFloat(index / 3 - 1) * (cellSize + spacing)
                         )
                 }
+
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(isFocused ? Color(hex: 0x65F58A) : Color(hex: 0xB8FFB9))
+                    .shadow(color: Color(hex: 0x48E875).opacity(0.65), radius: 4)
+                    .position(x: centerX, y: centerY)
             }
         }
     }
