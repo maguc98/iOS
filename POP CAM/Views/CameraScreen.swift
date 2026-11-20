@@ -1449,155 +1449,479 @@ private struct LocalMediaAlbumSheet: View {
     let media: [URL]
     let onDelete: (URL) -> Void
 
-    @State private var selectedFilter = AlbumMediaFilter.all
+    @AppStorage("popcam.album.favorites") private var favoritePathsStorage = ""
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedFilter: AlbumMediaFilter = .all
+    @State private var selectedTab: AlbumMainTab = .library
+    @State private var searchText = ""
+    @State private var isSearchExpanded = false
+    @State private var isSelecting = false
+    @State private var selectedPaths: Set<String> = []
+    @State private var selectedURL: URL?
+    @State private var showViewer = false
+    @State private var showDeleteConfirmation = false
+    @State private var sortNewestFirst = true
 
-    private var filteredMedia: [URL] {
-        media.filter { url in
-            switch selectedFilter {
-            case .all: return true
-            case .photos: return !url.isVideoMedia
-            case .videos: return url.isVideoMedia
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 3),
+        count: 5
+    )
+
+    private var favoritePaths: Set<String> {
+        Set(favoritePathsStorage.split(separator: "\n").map(String.init))
+    }
+
+    private var displayedMedia: [URL] {
+        media
+            .filter { url in
+                switch selectedFilter {
+                case .all: return true
+                case .photos: return !url.isVideoMedia
+                case .videos: return url.isVideoMedia
+                }
+            }
+            .filter { url in
+                selectedTab == .library || favoritePaths.contains(url.path)
+            }
+            .filter { url in
+                searchText.isEmpty || url.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveContains(searchText)
+            }
+            .sorted { lhs, rhs in
+                let leftDate = Self.mediaDate(lhs)
+                let rightDate = Self.mediaDate(rhs)
+                return sortNewestFirst ? leftDate > rightDate : leftDate < rightDate
+            }
+    }
+
+    private var dateRangeTitle: String {
+        let dates = media.map(Self.mediaDate).filter { $0 > .distantPast }.sorted()
+        guard let first = dates.first, let last = dates.last else {
+            return "记录每一次值得保存的瞬间"
+        }
+        let firstText = Self.dateText(first)
+        let lastText = Self.dateText(last)
+        return firstText == lastText ? firstText : "\(firstText) – \(lastText)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(hex: 0xF7F0FA),
+                        Color(hex: 0xEAF4FA),
+                        Color(hex: 0xFDF1EA)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 3) {
+                        ForEach(displayedMedia, id: \.absoluteString) { url in
+                            Button {
+                                if isSelecting {
+                                    toggleSelection(for: url)
+                                } else {
+                                    selectedURL = url
+                                    showViewer = true
+                                }
+                            } label: {
+                                LocalAlbumThumbnail(url: url)
+                                    .overlay(alignment: .topTrailing) {
+                                        if isSelecting {
+                                            selectionMark(isSelected: selectedPaths.contains(url.path))
+                                                .padding(5)
+                                        }
+                                    }
+                                    .overlay {
+                                        if selectedPaths.contains(url.path) {
+                                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                .stroke(Color(hex: 0x78B8EE), lineWidth: 3)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 3)
+                    .padding(.top, 3)
+                    .padding(.bottom, 18)
+                }
+                .scrollIndicators(.hidden)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    albumHeader
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    albumBottomBar
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .preferredColorScheme(.light)
+        .fullScreenCover(isPresented: $showViewer, onDismiss: { selectedURL = nil }) {
+            if let selectedURL {
+                LocalAlbumDetailView(
+                    media: displayedMedia,
+                    initialURL: selectedURL,
+                    onDelete: { deletedURL in
+                        onDelete(deletedURL)
+                    }
+                )
+            }
+        }
+        .confirmationDialog(
+            "删除已选择的 \(selectedPaths.count) 项内容？",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除 \(selectedPaths.count) 项", role: .destructive) {
+                let paths = selectedPaths
+                for url in media where paths.contains(url.path) {
+                    onDelete(url)
+                }
+                selectedPaths.removeAll()
+                isSelecting = false
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删除后将无法从 POP CAM 相册中恢复。")
+        }
+    }
+
+    private var albumHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selectedTab == .library ? "图库" : "精选集")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x283242))
+                    Text(dateRangeTitle)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596477))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+
+                Spacer(minLength: 4)
+
+                Menu {
+                    Picker("内容", selection: $selectedFilter) {
+                        Text("全部").tag(AlbumMediaFilter.all)
+                        Text("照片").tag(AlbumMediaFilter.photos)
+                        Text("视频").tag(AlbumMediaFilter.videos)
+                    }
+                    Divider()
+                    Button {
+                        sortNewestFirst = true
+                    } label: {
+                        Label("最新优先", systemImage: sortNewestFirst ? "checkmark" : "clock")
+                    }
+                    Button {
+                        sortNewestFirst = false
+                    } label: {
+                        Label("最早优先", systemImage: !sortNewestFirst ? "checkmark" : "calendar")
+                    }
+                } label: {
+                    albumCircleControl(symbol: "line.3.horizontal.decrease")
+                }
+
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        isSelecting.toggle()
+                        if !isSelecting { selectedPaths.removeAll() }
+                    }
+                } label: {
+                    Text(isSelecting ? "完成" : "选择")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                        .padding(.horizontal, 21)
+                        .frame(height: 44)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0xFCEBF1), Color(hex: 0xE8F4FA)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Capsule()
+                        )
+                        .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
+                        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.13), radius: 10, y: 4)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if isSearchExpanded {
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color(hex: 0x8490A1))
+                    TextField("搜索照片或视频名称", text: $searchText)
+                        .font(.system(size: 14, weight: .medium))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button {
+                        searchText = ""
+                        isSearchExpanded = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color(hex: 0xA5ADBA))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 42)
+                .background(Color.white.opacity(0.78), in: Capsule())
+                .overlay(Capsule().stroke(Color.white, lineWidth: 1))
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(hex: 0xF7F0FA).opacity(0.97),
+                    Color(hex: 0xEAF4FA).opacity(0.91),
+                    Color(hex: 0xFDF1EA).opacity(0.70)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color.white.opacity(0.62)).frame(height: 1)
             }
         }
     }
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 9),
-        GridItem(.flexible(), spacing: 9),
-        GridItem(.flexible(), spacing: 9)
-    ]
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 14) {
-                HStack(spacing: 8) {
-                    filterButton("全部", filter: .all, count: media.count)
-                    filterButton("照片", filter: .photos, count: media.filter { !$0.isVideoMedia }.count)
-                    filterButton("视频", filter: .videos, count: media.filter(\.isVideoMedia).count)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-
-                if filteredMedia.isEmpty {
-                    ContentUnavailableView(
-                        selectedFilter == .videos ? "还没有视频" : selectedFilter == .photos ? "还没有照片" : "相册还是空的",
-                        systemImage: selectedFilter == .videos ? "video" : "photo.on.rectangle.angled",
-                        description: Text("在 POP CAM 拍摄并保存的照片和视频，会显示在这里。")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 10) {
-                            ForEach(filteredMedia, id: \.absoluteString) { url in
-                                NavigationLink {
-                                    LocalAlbumDetailView(url: url, onDelete: onDelete)
-                                } label: {
-                                    LocalAlbumThumbnail(url: url)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 22)
+    private var albumBottomBar: some View {
+        HStack(spacing: 12) {
+            if isSelecting {
+                HStack(spacing: 14) {
+                    Text("已选择 \(selectedPaths.count) 项")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Spacer(minLength: 0)
+                    Button("全选") {
+                        selectedPaths = Set(displayedMedia.map(\.path))
                     }
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x6E9DCE))
+                    Button {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 42, height: 42)
+                            .background(Color(hex: 0xF18B89), in: Circle())
+                    }
+                    .disabled(selectedPaths.isEmpty)
+                    .opacity(selectedPaths.isEmpty ? 0.45 : 1)
                 }
+                .padding(.horizontal, 18)
+                .frame(height: 62)
+                .background(albumDockBackground)
+            } else {
+                HStack(spacing: 0) {
+                    albumTabButton(.library, title: "图库", symbol: "photo.on.rectangle.angled")
+                    albumTabButton(.favorites, title: "精选集", symbol: "square.stack.3d.up")
+                }
+                .padding(5)
+                .frame(height: 68)
+                .background(albumDockBackground)
+
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        isSearchExpanded.toggle()
+                        if !isSearchExpanded { searchText = "" }
+                    }
+                } label: {
+                    Image(systemName: isSearchExpanded ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x52647A))
+                        .frame(width: 62, height: 62)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0xFFF1E4), Color(hex: 0xE8F4FA)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Circle()
+                        )
+                        .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
+                        .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 12, y: 4)
+                }
+                .buttonStyle(.plain)
             }
-            .background(
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 9)
+        .padding(.bottom, 6)
+        .background {
+            LinearGradient(
+                colors: [Color(hex: 0xEAF4FA).opacity(0), Color(hex: 0xF1ECFA).opacity(0.92)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private var albumDockBackground: some View {
+        Capsule()
+            .fill(
                 LinearGradient(
-                    colors: [Color(hex: 0xFCEBF1), Color(hex: 0xF1ECFA), Color(hex: 0xE8F4FA)],
+                    colors: [
+                        Color(hex: 0xE8F4FA).opacity(0.97),
+                        Color(hex: 0xF1ECFA).opacity(0.97),
+                        Color(hex: 0xFCEBF1).opacity(0.94)
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
-            .navigationTitle("POP CAM 相册")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .preferredColorScheme(.light)
+            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1.2))
+            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 16, y: 6)
     }
 
-    private func filterButton(_ title: String, filter: AlbumMediaFilter, count: Int) -> some View {
+    private func albumTabButton(_ tab: AlbumMainTab, title: String, symbol: String) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) {
-                selectedFilter = filter
+                selectedTab = tab
+                selectedPaths.removeAll()
+                isSelecting = false
             }
         } label: {
-            HStack(spacing: 5) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 22, weight: .semibold))
                 Text(title)
-                Text("\(count)").monospacedDigit().opacity(0.68)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
             }
-            .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundStyle(Color(hex: 0x3D4352))
+            .foregroundStyle(selectedTab == tab ? Color(hex: 0x559ED8) : Color(hex: 0x687487))
             .frame(maxWidth: .infinity)
-            .frame(height: 34)
-            .background(
-                selectedFilter == filter ? Color.white.opacity(0.96) : Color.white.opacity(0.48),
-                in: Capsule()
-            )
-            .overlay(Capsule().stroke(Color.white.opacity(0.95), lineWidth: 1))
+            .frame(height: 56)
+            .background {
+                if selectedTab == tab {
+                    Capsule()
+                        .fill(Color.white.opacity(0.70))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.88), lineWidth: 0.8))
+                }
+            }
         }
         .buttonStyle(.plain)
     }
+
+    private func albumCircleControl(symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x52647A))
+            .frame(width: 44, height: 44)
+            .background(
+                LinearGradient(
+                    colors: [Color(hex: 0xF1ECFA), Color(hex: 0xE8F4FA)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: Circle()
+            )
+            .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8E9AAC).opacity(0.12), radius: 9, y: 3)
+    }
+
+    private func selectionMark(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 21, weight: .semibold))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(isSelected ? Color.white : Color.white, Color(hex: 0x78B8EE))
+            .shadow(color: .black.opacity(0.30), radius: 3, y: 1)
+    }
+
+    private func toggleSelection(for url: URL) {
+        if selectedPaths.contains(url.path) {
+            selectedPaths.remove(url.path)
+        } else {
+            selectedPaths.insert(url.path)
+        }
+    }
+
+    private static func mediaDate(_ url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        return values?.creationDate ?? values?.contentModificationDate ?? .distantPast
+    }
+
+    private static func dateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter.string(from: date)
+    }
 }
 
-private enum AlbumMediaFilter {
+private enum AlbumMediaFilter: String, CaseIterable, Identifiable {
     case all
     case photos
     case videos
+
+    var id: String { rawValue }
+}
+
+private enum AlbumMainTab {
+    case library
+    case favorites
 }
 
 private struct LocalAlbumThumbnail: View {
     let url: URL
+
     @State private var thumbnail: UIImage?
     @State private var isLoading = true
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Group {
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Rectangle()
-                        .fill(Color(hex: 0xE7EAF0))
-                        .overlay {
-                            if isLoading {
-                                ProgressView().tint(Color(hex: 0x8B91A0))
-                            } else {
-                                Image(systemName: url.isVideoMedia ? "video" : "photo")
-                                    .font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(Color(hex: 0x8B91A0))
+        GeometryReader { geometry in
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    } else {
+                        Rectangle()
+                            .fill(Color(hex: 0xE7EAF0))
+                            .overlay {
+                                if isLoading {
+                                    ProgressView().tint(Color(hex: 0x8B91A0))
+                                } else {
+                                    Image(systemName: url.isVideoMedia ? "video" : "photo")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0x8B91A0))
+                                }
                             }
-                        }
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
 
-            if url.isVideoMedia {
-                HStack(spacing: 4) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 8, weight: .bold))
+                if url.isVideoMedia {
                     Text(videoDurationLabel)
-                        .font(.system(size: 9, weight: .bold, design: .rounded).monospacedDigit())
+                        .font(.system(size: 10, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.85), radius: 3, y: 1)
+                        .padding(.trailing, 6)
+                        .padding(.bottom, 5)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 5)
-                .background(.black.opacity(0.58), in: Capsule())
-                .padding(6)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
-        .frame(height: 118)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1))
+        .aspectRatio(1, contentMode: .fit)
         .task(id: url) { await loadThumbnail() }
     }
 
     private var videoDurationLabel: String {
         guard url.isVideoMedia else { return "" }
-        let asset = AVURLAsset(url: url)
-        let seconds = Int(CMTimeGetSeconds(asset.duration).isFinite ? CMTimeGetSeconds(asset.duration) : 0)
+        let secondsValue = CMTimeGetSeconds(AVURLAsset(url: url).duration)
+        let seconds = Int(secondsValue.isFinite ? max(0, secondsValue) : 0)
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
@@ -1625,17 +1949,279 @@ private struct LocalAlbumThumbnail: View {
 }
 
 private struct LocalAlbumDetailView: View {
-    let url: URL
+    let media: [URL]
     let onDelete: (URL) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer?
-    @State private var image: UIImage?
+    @AppStorage("popcam.album.favorites") private var favoritePathsStorage = ""
+    @State private var currentIndex: Int
+    @State private var showInfo = false
     @State private var showDeleteConfirmation = false
+    @State private var isAspectFit = true
+
+    init(media: [URL], initialURL: URL, onDelete: @escaping (URL) -> Void) {
+        self.media = media
+        self.onDelete = onDelete
+        let initialIndex = media.firstIndex(of: initialURL) ?? 0
+        _currentIndex = State(initialValue: initialIndex)
+    }
+
+    private var currentURL: URL {
+        guard !media.isEmpty else { return URL(fileURLWithPath: "") }
+        return media[min(max(currentIndex, 0), media.count - 1)]
+    }
+
+    private var favoritePaths: Set<String> {
+        Set(favoritePathsStorage.split(separator: "\n").map(String.init))
+    }
+
+    private var isFavorite: Bool {
+        favoritePaths.contains(currentURL.path)
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+
+            TabView(selection: $currentIndex) {
+                ForEach(Array(media.enumerated()), id: \.offset) { index, url in
+                    AlbumViewerPage(url: url, isAspectFit: isAspectFit)
+                        .tag(index)
+                    .accessibilityLabel(url.isVideoMedia ? "视频" : "照片")
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            VStack(spacing: 0) {
+                viewerHeader
+                Spacer(minLength: 18)
+                thumbnailStrip
+                viewerToolbar
+            }
+        }
+        .statusBarHidden(false)
+        .sheet(isPresented: $showInfo) {
+            AlbumInfoSheet(url: currentURL)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(26)
+        }
+        .confirmationDialog("删除这项媒体？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                onDelete(currentURL)
+                dismiss()
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    private var viewerHeader: some View {
+        HStack(spacing: 12) {
+            Button {
+                dismiss()
+            } label: {
+                viewerCircleButton(symbol: "chevron.left")
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 1) {
+                Text(Self.relativeDateText(Self.mediaDate(currentURL)))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                Text(Self.timeText(Self.mediaDate(currentURL)))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+            }
+            .foregroundStyle(Color(hex: 0x374357))
+            .frame(maxWidth: 176)
+            .frame(height: 48)
+            .background(
+                LinearGradient(
+                    colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: Capsule()
+            )
+            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 10, y: 4)
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ShareLink(item: currentURL) {
+                    Label("分享", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    showInfo = true
+                } label: {
+                    Label("媒体信息", systemImage: "info.circle")
+                }
+                Button {
+                    isAspectFit = true
+                } label: {
+                    Label("适应屏幕", systemImage: "arrow.down.right.and.arrow.up.left")
+                }
+            } label: {
+                viewerCircleButton(symbol: "ellipsis")
+            }
+        }
+        .padding(.horizontal, 17)
+        .padding(.top, 8)
+    }
+
+    private var thumbnailStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(Array(media.enumerated()), id: \.offset) { index, url in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                currentIndex = index
+                            }
+                        } label: {
+                            LocalAlbumThumbnail(url: url)
+                                .frame(width: 54, height: 54)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .stroke(
+                                            currentIndex == index ? Color(hex: 0x8CC5F0) : Color.white.opacity(0.72),
+                                            lineWidth: currentIndex == index ? 2.5 : 1
+                                        )
+                                }
+                                .opacity(currentIndex == index ? 1 : 0.62)
+                        }
+                        .buttonStyle(.plain)
+                        .id(index)
+                    }
+                }
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: currentIndex) { _, newValue in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+        }
+        .frame(height: 70)
+    }
+
+    private var viewerToolbar: some View {
+        HStack(spacing: 11) {
+            ShareLink(item: currentURL) {
+                viewerCircleButton(symbol: "square.and.arrow.up")
+            }
+
+            HStack(spacing: 0) {
+                Button {
+                    toggleFavorite()
+                } label: {
+                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                        .foregroundStyle(isFavorite ? Color(hex: 0xF18B9D) : Color(hex: 0x53647A))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                }
+
+                Button {
+                    showInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(Color(hex: 0x53647A))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                }
+
+                Button {
+                    isAspectFit.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .foregroundStyle(Color(hex: 0x53647A))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                }
+            }
+            .font(.system(size: 22, weight: .semibold))
+            .frame(width: 188)
+            .background(
+                LinearGradient(
+                    colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA), Color(hex: 0xFCEBF1)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: Capsule()
+            )
+            .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 11, y: 4)
+
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                viewerCircleButton(symbol: "trash", tint: Color(hex: 0xD97D83))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 17)
+        .padding(.top, 7)
+        .padding(.bottom, 10)
+    }
+
+    private func viewerCircleButton(symbol: String, tint: Color = Color(hex: 0x53647A)) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 50, height: 50)
+            .background(
+                LinearGradient(
+                    colors: [Color(hex: 0xE8F4FA), Color(hex: 0xF1ECFA)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: Circle()
+            )
+            .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 1))
+            .shadow(color: Color(hex: 0x8294AA).opacity(0.18), radius: 10, y: 4)
+    }
+
+    private func toggleFavorite() {
+        var paths = favoritePaths
+        if paths.contains(currentURL.path) {
+            paths.remove(currentURL.path)
+        } else {
+            paths.insert(currentURL.path)
+        }
+        favoritePathsStorage = paths.sorted().joined(separator: "\n")
+    }
+
+    private static func mediaDate(_ url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        return values?.creationDate ?? values?.contentModificationDate ?? .distantPast
+    }
+
+    private static func relativeDateText(_ date: Date) -> String {
+        if date == .distantPast { return "POP CAM" }
+        if Calendar.current.isDateInToday(date) { return "今天" }
+        if Calendar.current.isDateInYesterday(date) { return "昨天" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private static func timeText(_ date: Date) -> String {
+        guard date > .distantPast else { return "" }
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+private struct AlbumViewerPage: View {
+    let url: URL
+    let isAspectFit: Bool
+
+    @State private var image: UIImage?
+    @State private var player: AVPlayer?
+    @State private var zoomScale: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Color.black
 
             if url.isVideoMedia {
                 if let player {
@@ -1647,47 +2233,106 @@ private struct LocalAlbumDetailView: View {
             } else if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .padding(10)
+                    .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
+                    .scaleEffect(zoomScale)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                zoomScale = min(max(value, 1), 5)
+                            }
+                            .onEnded { _ in
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    if zoomScale < 1.05 { zoomScale = 1 }
+                                }
+                            }
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            zoomScale = zoomScale > 1.1 ? 1 : 2
+                        }
+                    }
             } else {
-                ContentUnavailableView("无法读取媒体", systemImage: "photo")
-                    .foregroundStyle(.white)
+                ProgressView().tint(.white)
             }
         }
-        .navigationTitle(url.isVideoMedia ? "视频" : "照片")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                ShareLink(item: url) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
-                } label: {
-                    Image(systemName: "trash")
-                }
-            }
-        }
-        .confirmationDialog("删除这项媒体？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-            Button("删除", role: .destructive) {
-                player?.pause()
-                onDelete(url)
-                dismiss()
-            }
-            Button("取消", role: .cancel) {}
-        }
-        .onAppear {
+        .task(id: url) {
             if url.isVideoMedia {
+                player?.pause()
                 player = AVPlayer(url: url)
                 player?.play()
             } else {
-                image = UIImage(contentsOfFile: url.path)
+                let fileURL = url
+                let loadedImage = await Task.detached(priority: .userInitiated) {
+                    UIImage(contentsOfFile: fileURL.path)
+                }.value
+                guard !Task.isCancelled else { return }
+                image = loadedImage
             }
+        }
+        .onChange(of: isAspectFit) { _, _ in
+            zoomScale = 1
         }
         .onDisappear {
             player?.pause()
             player = nil
         }
+    }
+}
+
+private struct AlbumInfoSheet: View {
+    let url: URL
+
+    private var attributes: [FileAttributeKey: Any] {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
+    }
+
+    private var fileSizeText: String {
+        let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private var dateText: String {
+        let date = (attributes[.creationDate] as? Date) ?? (attributes[.modificationDate] as? Date)
+        return date?.formatted(date: .long, time: .shortened) ?? "未知"
+    }
+
+    private var dimensionsText: String {
+        guard !url.isVideoMedia,
+              let image = UIImage(contentsOfFile: url.path) else { return "—" }
+        return "\(Int(image.size.width * image.scale)) × \(Int(image.size.height * image.scale))"
+    }
+
+    private var durationText: String {
+        guard url.isVideoMedia else { return "—" }
+        let secondsValue = CMTimeGetSeconds(AVURLAsset(url: url).duration)
+        guard secondsValue.isFinite else { return "读取中" }
+        let seconds = Int(max(0, secondsValue))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                LabeledContent("类型", value: url.isVideoMedia ? "视频" : "照片")
+                LabeledContent("拍摄/创建时间", value: dateText)
+                LabeledContent("尺寸", value: dimensionsText)
+                if url.isVideoMedia {
+                    LabeledContent("时长", value: durationText)
+                }
+                LabeledContent("文件大小", value: fileSizeText)
+                LabeledContent("文件名", value: url.lastPathComponent)
+            }
+            .navigationTitle("媒体信息")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { }
+                }
+            }
+        }
+        .preferredColorScheme(.light)
     }
 }
 
