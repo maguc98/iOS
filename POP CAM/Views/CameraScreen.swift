@@ -252,14 +252,7 @@ struct CameraScreen: View {
                         }
                         .frame(width: width - 28, height: 82)
                         .padding(5)
-                        .background {
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .fill(Color.white)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                        
-                                }
-                        }
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                         .position(x: width / 2, y: height - 55)
                         .transition(
@@ -742,7 +735,7 @@ struct CameraScreen: View {
             .padding(.vertical, 6)
             .background(
                 superResolutionScale == scale
-                    ? Color(hex: selectedPalette.background[0]).opacity(0.98)
+                    ? Color(hex: selectedPalette.background[0])
                     : Color.white,
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
@@ -863,10 +856,6 @@ struct CameraScreen: View {
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                
-        )
         .allowsHitTesting(false)
     }
 
@@ -1623,7 +1612,6 @@ private struct LocalMediaAlbumSheet: View {
                 .padding(.horizontal, 14)
                 .frame(height: 42)
                 .background(Color.white, in: Capsule())
-                .overlay(Capsule())
             }
         }
         .padding(.horizontal, 18)
@@ -2414,10 +2402,6 @@ private struct StabilizationPreviewHUD: View {
                 .padding(7)
             }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    
-            )
         }
         .accessibilityLabel("防抖取景监视器，绿色框根据设备姿态动态移动，表示估算的稳定取景范围")
     }
