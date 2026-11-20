@@ -282,11 +282,14 @@ final class CameraService: ObservableObject {
                 actualFPS: actualFPS
             )
         }.sorted { lhs, rhs in
-            if lhs.supportsHDR != rhs.supportsHDR {
-                return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
-            }
+            // Preserve the requested frame rate first. HDR is selected among
+            // formats that can actually deliver that rate, avoiding an HDR
+            // fallback to 30 FPS when the user explicitly chose 60 FPS.
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
+            }
+            if lhs.supportsHDR != rhs.supportsHDR {
+                return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
             }
             let lhsArea = Int64(lhs.dimensions.width) * Int64(lhs.dimensions.height)
             let rhsArea = Int64(rhs.dimensions.width) * Int64(rhs.dimensions.height)
