@@ -166,7 +166,7 @@ final class CameraService: ObservableObject {
 
     private func displayZoomMultiplier(for device: AVCaptureDevice) -> CGFloat {
         if #available(iOS 18.0, *) {
-            return displayZoomMultiplier(for: device)
+            return max(device.displayVideoZoomFactorMultiplier, 0.01)
         }
         return 1.0
     }
