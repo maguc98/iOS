@@ -1033,7 +1033,7 @@ struct CameraScreen: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 36)
+        .frame(height: 34)
         .clipped()
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
@@ -1232,10 +1232,10 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("焦距重置为 1 倍")
             }
-            .frame(height: 36)
+            .frame(height: 34)
             .animation(.easeInOut(duration: 0.20), value: compact)
         }
-        .frame(height: 36)
+        .frame(height: 34)
     }
 
     private var exposureAdjustmentControl: some View {
@@ -1275,10 +1275,10 @@ struct CameraScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("曝光重置")
             }
-            .frame(height: 36)
+            .frame(height: 34)
             .animation(.easeInOut(duration: 0.20), value: compact)
         }
-        .frame(height: 36)
+        .frame(height: 34)
     }
 
     private var focusAdjustmentControl: some View {
@@ -1322,10 +1322,10 @@ struct CameraScreen: View {
                 }
                 .buttonStyle(.plain)
             }
-            .frame(height: 36)
+            .frame(height: 34)
             .animation(.easeInOut(duration: 0.20), value: compact)
         }
-        .frame(height: 36)
+        .frame(height: 34)
     }
 
     private var gridAdjustmentControl: some View {
@@ -1366,7 +1366,6 @@ struct CameraScreen: View {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
                     showLevel.toggle()
                 }
-                updateMotionMonitoring()
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: showLevel ? "checkmark" : "level")
