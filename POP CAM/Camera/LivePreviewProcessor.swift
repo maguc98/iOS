@@ -2,6 +2,13 @@ import AVFoundation
 import CoreImage
 import QuartzCore
 import CoreGraphics
+import UIKit
+
+struct VisualMotionEstimate: Equatable {
+    var offsetX: CGFloat = 0
+    var offsetY: CGFloat = 0
+    var confidence: CGFloat = 0
+}
 
 struct AutofocusPoint: Identifiable, Equatable {
     let id: Int
@@ -17,8 +24,11 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
     private var lastAutofocusAnalysisTime: CFTimeInterval = 0
     private var autofocusVisualizationEnabled = false
     private let autofocusDetector = MultiPointAutofocusDetector()
+    private let visualMotionDetector = GlobalMotionDetector()
+    private var lastMotionAnalysisTime: CFTimeInterval = 0
     var onFrame: ((CGImage) -> Void)?
     var onAutofocusPoints: (([AutofocusPoint]) -> Void)?
+    var onVisualMotion: ((VisualMotionEstimate) -> Void)?
 
     var isAutofocusVisualizationEnabled: Bool {
         get {
@@ -67,11 +77,85 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
         guard let frame = context.createCGImage(preview, from: preview.extent) else { return }
         onFrame?(frame)
 
+        if now - lastMotionAnalysisTime >= 0.12 {
+            lastMotionAnalysisTime = now
+            onVisualMotion?(visualMotionDetector.estimate(in: frame))
+        }
+
         if isAutofocusVisualizationEnabled,
            now - lastAutofocusAnalysisTime >= 0.18 {
             lastAutofocusAnalysisTime = now
             onAutofocusPoints?(autofocusDetector.detect(in: frame))
         }
+    }
+}
+
+/// Estimates dominant frame-to-frame image translation from sampled luminance.
+/// This is visual scene-motion tracking, not a replacement for AVFoundation EIS.
+private final class GlobalMotionDetector {
+    private let width = 80
+    private let height = 100
+    private var previous: [UInt8]?
+    private var smoothed = VisualMotionEstimate()
+
+    func estimate(in image: CGImage) -> VisualMotionEstimate {
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let base = buffer.baseAddress,
+                  let context = CGContext(data: base, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            context.interpolationQuality = .low
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1, y: -1)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else { return smoothed }
+        guard let previous else { self.previous = pixels; return VisualMotionEstimate() }
+
+        let radius = 7
+        var bestError = Double.greatestFiniteMagnitude
+        var secondBest = Double.greatestFiniteMagnitude
+        var bestDX = 0
+        var bestDY = 0
+        // Sample every second pixel to keep this suitable for live preview.
+        for dy in -radius...radius {
+            for dx in -radius...radius {
+                var error = 0.0
+                var count = 0
+                for y in stride(from: radius + 2, to: height - radius - 2, by: 2) {
+                    for x in stride(from: radius + 2, to: width - radius - 2, by: 2) {
+                        let a = Int(previous[y * width + x])
+                        let b = Int(pixels[(y + dy) * width + (x + dx)])
+                        error += Double(abs(a - b))
+                        count += 1
+                    }
+                }
+                let score = error / Double(max(1, count))
+                if score < bestError {
+                    secondBest = bestError
+                    bestError = score
+                    bestDX = dx
+                    bestDY = dy
+                } else if score < secondBest {
+                    secondBest = score
+                }
+            }
+        }
+        self.previous = pixels
+        let confidence = min(1, max(0, (secondBest - bestError) / max(secondBest, 1)))
+        let valid = bestError < 34 && confidence > 0.008
+        let target = VisualMotionEstimate(
+            offsetX: valid ? CGFloat(bestDX) / CGFloat(width) : 0,
+            offsetY: valid ? CGFloat(bestDY) / CGFloat(height) : 0,
+            confidence: valid ? confidence : 0
+        )
+        smoothed.offsetX += (target.offsetX - smoothed.offsetX) * 0.38
+        smoothed.offsetY += (target.offsetY - smoothed.offsetY) * 0.38
+        smoothed.confidence += (target.confidence - smoothed.confidence) * 0.30
+        return smoothed
     }
 }
 
