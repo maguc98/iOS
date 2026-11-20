@@ -1869,10 +1869,14 @@ private final class CameraLevelMonitor: ObservableObject {
 
     private let manager = CMMotionManager()
     private var referenceAttitude: CMAttitude?
+    private var stationarySince: TimeInterval?
+    private var hasRecenteredAtRest = false
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
         referenceAttitude = nil
+        stationarySince = nil
+        hasRecenteredAtRest = false
         manager.deviceMotionUpdateInterval = 1.0 / 60.0
 
         let availableFrames = CMMotionManager.availableAttitudeReferenceFrames()
@@ -1907,6 +1911,28 @@ private final class CameraLevelMonitor: ObservableObject {
             let smoothing: Double = measuredShake > self.shakeLevel ? 0.42 : 0.16
             self.shakeLevel += (measuredShake - self.shakeLevel) * smoothing
 
+            // The first reference attitude may be captured while the phone is
+            // lying flat. If the user then raises it into the normal portrait
+            // shooting position, a fixed reference makes the estimated EIS
+            // crop frame stay displaced even after the phone becomes steady.
+            // Re-acquire the neutral pose after a short stationary interval so
+            // the guide recenters in both flat and handheld shooting positions.
+            let isStationary = rotationMagnitude < 0.12 && accelerationMagnitude < 0.045
+            if isStationary {
+                if self.stationarySince == nil {
+                    self.stationarySince = motion.timestamp
+                }
+                if !self.hasRecenteredAtRest,
+                   let stationarySince = self.stationarySince,
+                   motion.timestamp - stationarySince >= 0.75 {
+                    self.referenceAttitude = motion.attitude.copy() as? CMAttitude
+                    self.hasRecenteredAtRest = true
+                }
+            } else {
+                self.stationarySince = nil
+                self.hasRecenteredAtRest = false
+            }
+
             guard let reference = self.referenceAttitude else {
                 self.referenceAttitude = motion.attitude.copy() as? CMAttitude
                 self.stabilizationPitchDegrees = 0
@@ -1934,6 +1960,8 @@ private final class CameraLevelMonitor: ObservableObject {
         guard manager.isDeviceMotionActive else { return }
         manager.stopDeviceMotionUpdates()
         referenceAttitude = nil
+        stationarySince = nil
+        hasRecenteredAtRest = false
         stabilizationPitchDegrees = 0
         stabilizationYawDegrees = 0
         stabilizationRollDegrees = 0
