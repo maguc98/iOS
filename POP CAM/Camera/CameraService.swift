@@ -148,6 +148,13 @@ final class CameraService: ObservableObject {
         }
     }
 
+    private func displayZoomMultiplier(for device: AVCaptureDevice) -> CGFloat {
+        if #available(iOS 18.0, *) {
+            return max(device.displayVideoZoomFactorMultiplier, 0.001)
+        }
+        return 1
+    }
+
     private func cameraDevice(position: AVCaptureDevice.Position) -> AVCaptureDevice? {
         if position == .back {
             // Prefer Apple's virtual multi-camera device. It lets AVFoundation
