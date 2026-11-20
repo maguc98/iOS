@@ -194,7 +194,7 @@ struct CameraScreen: View {
                             stabilizationEnabled: videoStabilizationEnabled,
                             isStabilizationSupported: camera.isVideoStabilizationActive
                         )
-                        .frame(width: 154, height: 122)
+                        .frame(width: 174, height: 140)
                         .position(
                             x: min(max(width * motionStatusHUDX, 84), width - 84),
                             y: min(max(height * motionStatusHUDY, 68), height - 68)
@@ -355,7 +355,8 @@ struct CameraScreen: View {
                 VStack(spacing: 0) {
                     header
                     captureFormatBar
-                        .padding(.top, 4)
+                        .padding(.top, 14)
+                        .padding(.horizontal, 8)
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -1116,10 +1117,10 @@ struct CameraScreen: View {
                     .background(Color.white.opacity(0.82), in: Circle())
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
+        .overlay(Capsule().stroke(Color.white.opacity(0.96), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.10), radius: 8, y: 2)
     }
 
@@ -2004,12 +2005,12 @@ private struct MotionStatusWindow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
                 Image(systemName: "waveform.path")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                 Text("运动状态")
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
                     .tracking(0.5)
                 Spacer()
                 Circle()
@@ -2040,13 +2041,13 @@ private struct MotionStatusWindow: View {
                         .foregroundStyle(Color(hex: 0x8D83C9))
                         .frame(width: 14)
                     Text("晃动指示")
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x596171))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x343B49))
                     Spacer(minLength: 2)
                     Text("\(shakeDescription)  \(Int((shakeLevel * 100).rounded()))%")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(Color(hex: 0x3D4352))
+                        .foregroundStyle(Color(hex: 0x252C39))
                 }
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
@@ -2066,13 +2067,13 @@ private struct MotionStatusWindow: View {
                     .foregroundStyle(stabilizationTint)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.52))
+                .fill(Color.white.opacity(0.82))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .overlay {
@@ -2094,11 +2095,11 @@ private struct MotionStatusWindow: View {
             accessory()
                 .frame(width: 26, height: 12)
             Text(title)
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color(hex: 0x596171))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x343B49))
             Spacer(minLength: 2)
             Text(value)
-                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .font(.system(size: 10, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
