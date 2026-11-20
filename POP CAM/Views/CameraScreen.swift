@@ -1519,7 +1519,7 @@ private struct LocalMediaAlbumSheet: View {
                             .offset(y: contentAppeared ? 0 : 12)
                             .opacity(contentAppeared ? 1 : 0)
 
-                        if selectedTab != .albums || activeCollection != nil {
+                        if selectedTab == .photos && activeCollection == nil {
                             memoryFeatureCard
                                 .offset(y: contentAppeared ? 0 : 18)
                                 .opacity(contentAppeared ? 1 : 0)
@@ -1530,6 +1530,7 @@ private struct LocalMediaAlbumSheet: View {
                             filterControls
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                             photosContent
+                                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: displayedMedia.map(\.path))
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else if selectedTab == .memories {
                             memoriesContent
@@ -1541,6 +1542,7 @@ private struct LocalMediaAlbumSheet: View {
                             filterControls
                                 .transition(.opacity)
                             photosContent
+                                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: displayedMedia.map(\.path))
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
@@ -1872,7 +1874,7 @@ private struct LocalMediaAlbumSheet: View {
                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                                 .foregroundStyle(Color(hex: 0x9AA7B6))
                             Spacer()
-                            Text("\(group.items.count) 张")
+                            Text("\(group.items.count) 项")
                                 .font(.system(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(Color(hex: 0xA5AFBB))
                         }
@@ -1912,6 +1914,7 @@ private struct LocalMediaAlbumSheet: View {
                             .font(.system(size: 20, weight: .semibold))
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, Color(hex: selected ? 0x78B8EE : 0x64748B))
+                            .symbolEffect(.bounce, value: selected)
                             .padding(7)
                             .transition(.scale.combined(with: .opacity))
                     }
@@ -2179,6 +2182,7 @@ private struct LocalMediaAlbumSheet: View {
                 Label("删除相簿", systemImage: "trash")
             }
         }
+        .transition(.scale(scale: 0.94).combined(with: .opacity))
     }
 
     private var bottomNavigation: some View {
@@ -2553,6 +2557,7 @@ private struct LocalAlbumThumbnail: View {
                             .scaledToFill()
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
+                            .transition(.opacity)
                     } else {
                         Rectangle()
                             .fill(Color(hex: 0xE7EAF0))
@@ -2608,8 +2613,10 @@ private struct LocalAlbumThumbnail: View {
             return UIImage(contentsOfFile: fileURL.path)
         }.value
         guard !Task.isCancelled else { return }
-        thumbnail = result
-        isLoading = false
+        withAnimation(.easeInOut(duration: 0.24)) {
+            thumbnail = result
+            isLoading = false
+        }
     }
 }
 
