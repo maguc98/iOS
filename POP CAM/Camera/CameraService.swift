@@ -714,7 +714,7 @@ final class CameraService: ObservableObject {
             // Virtual cameras expose Apple's optical lens hand-off through one
             // zoom control. Convert the UI value using Apple's display multiplier
             // instead of replacing the capture input at the 0.5x / 1x boundary.
-            let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.001)
+            let multiplier = self.displayZoomMultiplier(for: device)
             let minimumDisplayZoom = device.minAvailableVideoZoomFactor * multiplier
             let maximumDisplayZoom = min(
                 CGFloat(10),
