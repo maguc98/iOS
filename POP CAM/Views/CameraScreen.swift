@@ -804,10 +804,8 @@ struct CameraScreen: View {
         .padding(4)
         .background(Color.white, in: Capsule())
         .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.32)
-                .sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { value in
-                    guard case .second(true, let drag?) = value else { return }
+            DragGesture(minimumDistance: 8)
+                .onChanged { drag in
                     if zoomDragStartValue == nil {
                         zoomDragStartValue = CGFloat(zoom)
                     }
@@ -817,9 +815,8 @@ struct CameraScreen: View {
                         }
                     }
 
-                    // Move through logarithmic zoom stops: equal finger travel
-                    // produces equal proportional zoom changes, like the native
-                    // camera's continuous zoom control.
+                    // Direct horizontal dragging continuously adjusts zoom.
+                    // The logarithmic scale keeps proportional zoom changes natural.
                     let startStops = log2(max(0.5, Double(zoomDragStartValue ?? CGFloat(zoom))))
                     let dragStops = Double(drag.translation.width) / 155.0
                     let targetZoom = CGFloat(pow(2.0, startStops + dragStops))
@@ -3551,7 +3548,6 @@ private final class CameraLevelMonitor: ObservableObject {
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
-        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         referenceAttitude = nil
         stationarySince = nil
         hasRecenteredAtRest = false
@@ -3568,23 +3564,7 @@ private final class CameraLevelMonitor: ObservableObject {
 
             let absoluteRoll = Self.degrees(motion.attitude.roll)
             let absolutePitch = Self.degrees(motion.attitude.pitch)
-            let physicalOrientation = UIDevice.current.orientation
-            let screenRelativeRoll: Double
-            switch physicalOrientation {
-            case .portrait:
-                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll - 90)
-            case .portraitUpsideDown:
-                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll + 90)
-            case .landscapeLeft:
-                screenRelativeRoll = Self.wrappedDegrees(absolutePitch - 90)
-            case .landscapeRight:
-                screenRelativeRoll = Self.wrappedDegrees(absolutePitch + 90)
-            case .faceUp, .faceDown:
-                screenRelativeRoll = 0
-            default:
-                screenRelativeRoll = Self.wrappedDegrees(absoluteRoll)
-            }
-            self.rollDegrees += (screenRelativeRoll - self.rollDegrees) * 0.28
+            self.rollDegrees += (absoluteRoll - self.rollDegrees) * 0.28
 
             let combinedTilt = min(90, hypot(absoluteRoll, absolutePitch))
             self.tiltDegrees += (combinedTilt - self.tiltDegrees) * 0.24
@@ -3653,7 +3633,6 @@ private final class CameraLevelMonitor: ObservableObject {
     func stop() {
         guard manager.isDeviceMotionActive else { return }
         manager.stopDeviceMotionUpdates()
-        UIDevice.current.endGeneratingDeviceOrientationNotifications()
         referenceAttitude = nil
         stationarySince = nil
         hasRecenteredAtRest = false
