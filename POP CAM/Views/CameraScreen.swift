@@ -1415,6 +1415,7 @@ private struct LocalMediaAlbumSheet: View {
 
     @State private var memorySet: [URL] = []
     @State private var activeCollectionID: String?
+    @State private var isAddingToCollection = false
     @State private var showNewCollectionAlert = false
     @State private var newCollectionName = ""
 
@@ -1441,7 +1442,7 @@ private struct LocalMediaAlbumSheet: View {
     private var displayedMedia: [URL] {
         var result = media
 
-        if let activeCollection {
+        if let activeCollection, !isAddingToCollection {
             let paths = Set(activeCollection.paths)
             result = result.filter { paths.contains($0.path) }
         }
@@ -1643,12 +1644,24 @@ private struct LocalMediaAlbumSheet: View {
                         Button {
                             withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
                                 activeCollectionID = nil
+                                isAddingToCollection = false
                                 selectedTab = .albums
                                 isSelecting = false
                                 selectedPaths.removeAll()
                             }
                         } label: {
                             albumActionCircle("arrow.uturn.backward", fill: 0xFFFFFF)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                                isAddingToCollection = true
+                                isSelecting = true
+                                selectedPaths.removeAll()
+                            }
+                        } label: {
+                            albumActionCircle("plus", fill: 0xDCEEFF, tint: 0x587E9F)
                         }
                         .buttonStyle(.plain)
                     } else {
@@ -1829,7 +1842,11 @@ private struct LocalMediaAlbumSheet: View {
                 title: activeCollection == nil ? "还没有照片" : "这个相簿还空着",
                 message: activeCollection == nil ? "拍下第一张照片，让这里慢慢装满回忆。" : "选择几张喜欢的照片，放进这个小相簿吧。",
                 actionTitle: activeCollection == nil ? nil : "添加照片",
-                action: activeCollection == nil ? nil : { isSelecting = true }
+                action: activeCollection == nil ? nil : {
+                    isAddingToCollection = true
+                    isSelecting = true
+                    selectedPaths.removeAll()
+                }
             )
         } else {
             VStack(alignment: .leading, spacing: 19) {
@@ -1860,8 +1877,12 @@ private struct LocalMediaAlbumSheet: View {
                         }
 
                         LazyVGrid(columns: photoColumns, spacing: 9) {
-                            ForEach(Array(group.items.enumerated()), id: \.element.path) { index, url in
-                                photoTile(url, index: index, source: displayedMedia)
+                            ForEach(group.items, id: \.path) { url in
+                                photoTile(
+                                    url,
+                                    index: group.items.firstIndex(of: url) ?? 0,
+                                    source: displayedMedia
+                                )
                             }
                         }
                     }
@@ -1992,7 +2013,7 @@ private struct LocalMediaAlbumSheet: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 11) {
-                        ForEach(Array(memorySet.enumerated()), id: \.element.path) { index, url in
+                        ForEach(memorySet, id: \.path) { url in
                             Button {
                                 openViewer(url, in: memorySet)
                             } label: {
@@ -2009,7 +2030,8 @@ private struct LocalMediaAlbumSheet: View {
                                 .scaleEffect(contentAppeared ? 1 : 0.92)
                                 .opacity(contentAppeared ? 1 : 0)
                                 .animation(
-                                    .spring(response: 0.45, dampingFraction: 0.78).delay(Double(index) * 0.035),
+                                    .spring(response: 0.45, dampingFraction: 0.78)
+                                        .delay(Double(memorySet.firstIndex(of: url) ?? 0) * 0.035),
                                     value: contentAppeared
                                 )
                             }
@@ -2050,8 +2072,11 @@ private struct LocalMediaAlbumSheet: View {
             }
 
             LazyVGrid(columns: collectionColumns, spacing: 12) {
-                ForEach(Array(customCollections.enumerated()), id: \.element.id) { index, collection in
-                    collectionCard(collection, index: index)
+                ForEach(customCollections) { collection in
+                    collectionCard(
+                        collection,
+                        index: customCollections.firstIndex(where: { $0.id == collection.id }) ?? 0
+                    )
                 }
 
                 Button {
@@ -2063,7 +2088,7 @@ private struct LocalMediaAlbumSheet: View {
                             .font(.system(size: 24, weight: .medium))
                             .foregroundStyle(Color(hex: 0x8297B0))
                             .frame(width: 52, height: 52)
-                            .background(Color.white.opacity(0.82), in: Circle())
+                            .background(Color.white, in: Circle())
                         Text("创建相簿")
                             .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(Color(hex: 0x6C7D92))
@@ -2108,12 +2133,12 @@ private struct LocalMediaAlbumSheet: View {
                             .foregroundStyle(Color(hex: 0x71839A).opacity(0.7))
                     } else {
                         HStack(spacing: 5) {
-                            ForEach(Array(previews.enumerated()), id: \.element.path) { itemIndex, url in
+                            ForEach(previews, id: \.path) { url in
                                 LocalAlbumThumbnail(url: url)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 83)
                                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                                    .rotationEffect(.degrees(itemIndex == 1 ? 2 : (itemIndex == 0 ? -2 : 1)))
+                                    .rotationEffect(.degrees((previews.firstIndex(of: url) ?? 0) == 1 ? 2 : ((previews.firstIndex(of: url) ?? 0) == 0 ? -2 : 1)))
                             }
                         }
                         .padding(9)
@@ -2263,22 +2288,25 @@ private struct LocalMediaAlbumSheet: View {
                 .opacity(selectedPaths.isEmpty ? 0.45 : 1)
             }
 
-            Button {
-                showDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color(hex: 0xF18B9D), in: Circle())
+            if !isAddingToCollection {
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Color(hex: 0xF18B9D), in: Circle())
+                }
+                .disabled(selectedPaths.isEmpty)
+                .opacity(selectedPaths.isEmpty ? 0.45 : 1)
             }
-            .disabled(selectedPaths.isEmpty)
-            .opacity(selectedPaths.isEmpty ? 0.45 : 1)
 
             Button {
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
                     selectedPaths.removeAll()
                     isSelecting = false
+                    isAddingToCollection = false
                 }
             } label: {
                 Image(systemName: "xmark")
@@ -2328,7 +2356,7 @@ private struct LocalMediaAlbumSheet: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
         .padding(.horizontal, 24)
-        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 
@@ -2384,6 +2412,7 @@ private struct LocalMediaAlbumSheet: View {
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
             selectedPaths.removeAll()
             isSelecting = false
+            isAddingToCollection = false
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
