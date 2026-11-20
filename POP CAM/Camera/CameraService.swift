@@ -30,6 +30,7 @@ final class CameraService: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var recordingDuration: TimeInterval = 0
     @Published private(set) var appliedVideoDescription = "4K · 60 FPS"
+    @Published private(set) var savedVideoURLs: [URL] = []
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
@@ -52,6 +53,7 @@ final class CameraService: ObservableObject {
     private var recordingTimer: Timer?
 
     func prepare() {
+        reloadSavedVideos()
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             isAuthorized = true
@@ -295,25 +297,51 @@ final class CameraService: ObservableObject {
 
         guard error == nil else {
             try? FileManager.default.removeItem(at: url)
-            DispatchQueue.main.async { self.errorMessage = "录像失败：\(error!.localizedDescription)" }
+            DispatchQueue.main.async { self.errorMessage = "录像失败：\\(error?.localizedDescription ?? "未知错误")" }
             return
         }
 
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                try? FileManager.default.removeItem(at: url)
-                DispatchQueue.main.async { self.errorMessage = "需要照片图库添加权限才能保存视频。" }
-                return
+        do {
+            let destinationFolder = try appAlbumDirectory()
+            let filename = "POP_\\(Date().formatted(.dateTime.year().month().day().hour().minute().second))_\\(UUID().uuidString.prefix(6)).mov"
+            let destinationURL = destinationFolder.appendingPathComponent(filename)
+            try FileManager.default.moveItem(at: url, to: destinationURL)
+            reloadSavedVideos()
+            DispatchQueue.main.async {
+                self.errorMessage = "视频已保存到 POP CAM 相册。"
             }
-            PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .video, fileURL: url, options: nil)
-            } completionHandler: { success, saveError in
-                try? FileManager.default.removeItem(at: url)
-                DispatchQueue.main.async {
-                    self.errorMessage = success ? "视频已保存到照片图库。" : "保存视频失败：\(saveError?.localizedDescription ?? "未知错误")"
-                }
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            DispatchQueue.main.async {
+                self.errorMessage = "保存到 POP CAM 相册失败：\\(error.localizedDescription)"
             }
+        }
+    }
+
+    private func appAlbumDirectory() throws -> URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = documents.appendingPathComponent("POP CAM Album", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    func reloadSavedVideos() {
+        do {
+            let directory = try appAlbumDirectory()
+            let urls = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            )
+            .filter { $0.pathExtension.lowercased() == "mov" }
+            .sorted {
+                let first = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let second = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return first > second
+            }
+            DispatchQueue.main.async { self.savedVideoURLs = urls }
+        } catch {
+            DispatchQueue.main.async { self.savedVideoURLs = [] }
         }
     }
 
