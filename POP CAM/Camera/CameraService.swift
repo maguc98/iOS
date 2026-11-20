@@ -24,7 +24,7 @@ final class CameraService: ObservableObject {
     @Published var exposureBias: Float = 0
     @Published var isExposureFocusLocked = false
     @Published var focusStatus: CameraFocusStatus = .idle
-    @Published private(set) var autofocusPoints: [CGPoint] = []
+    @Published private(set) var autofocusPoints: [AutofocusPoint] = []
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
     @Published var errorMessage: String?

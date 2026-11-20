@@ -1055,22 +1055,22 @@ struct CameraScreen: View {
         camera.focus(at: CGPoint(x: 0.5, y: 0.5))
     }
 
-    private func projectedAutofocusPoints(in size: CGSize) -> [CGPoint] {
+    private func projectedAutofocusPoints(in size: CGSize) -> [AutofocusPoint] {
         guard let image = camera.previewImage, size.width > 0, size.height > 0 else { return [] }
         let sourceAspect = CGFloat(image.width) / CGFloat(image.height)
         let targetAspect = size.width / size.height
 
         return camera.autofocusPoints.compactMap { point in
-            var projected = point
+            var projected = point.location
             if sourceAspect > targetAspect {
                 let visibleWidth = targetAspect / sourceAspect
-                projected.x = (point.x - (1 - visibleWidth) / 2) / visibleWidth
+                projected.x = (point.location.x - (1 - visibleWidth) / 2) / visibleWidth
             } else {
                 let visibleHeight = sourceAspect / targetAspect
-                projected.y = (point.y - (1 - visibleHeight) / 2) / visibleHeight
+                projected.y = (point.location.y - (1 - visibleHeight) / 2) / visibleHeight
             }
             guard (0...1).contains(projected.x), (0...1).contains(projected.y) else { return nil }
-            return projected
+            return AutofocusPoint(id: point.id, location: projected, strength: point.strength)
         }
     }
 
@@ -1230,25 +1230,37 @@ private struct FocusReticle: Shape {
 }
 
 private struct MultiPointAutofocusOverlay: View {
-    let points: [CGPoint]
+    let points: [AutofocusPoint]
+
+    private let markerSize: CGFloat = 30
 
     var body: some View {
         GeometryReader { geometry in
-            ForEach(Array(points.enumerated()), id: \.offset) { item in
-                let point = item.element
+            let horizontalInset = max(38, geometry.size.width * 0.10)
+            let verticalInset = max(38, geometry.size.height * 0.08)
+
+            ForEach(points) { point in
                 AutofocusPointBracket()
                     .stroke(
                         Color(hex: 0x63F58B),
                         style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round)
                     )
-                    .frame(width: 30, height: 30)
-                    .shadow(color: Color(hex: 0x40E878).opacity(0.55), radius: 4)
+                    .frame(width: markerSize, height: markerSize)
+                    .shadow(color: Color(hex: 0x40E878).opacity(0.52), radius: 4)
+                    .scaleEffect(min(1.08, 0.94 + point.strength / 600))
                     .position(
-                        x: point.x * geometry.size.width,
-                        y: point.y * geometry.size.height
+                        x: min(max(point.location.x * geometry.size.width, horizontalInset), geometry.size.width - horizontalInset),
+                        y: min(max(point.location.y * geometry.size.height, verticalInset), geometry.size.height - verticalInset)
+                    )
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.62).combined(with: .opacity),
+                            removal: .scale(scale: 0.82).combined(with: .opacity)
+                        )
                     )
             }
         }
+        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: points)
     }
 }
 
