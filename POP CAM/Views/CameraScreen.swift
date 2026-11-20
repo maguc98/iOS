@@ -169,7 +169,7 @@ struct CameraScreen: View {
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(maxHeight: 112)
+                        .frame(maxHeight: 84)
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -431,7 +431,7 @@ struct CameraScreen: View {
             }
             FilterTray(selection: $camera.selectedFilter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 54)
+                .frame(height: 42)
                 .contentShape(Rectangle())
         }
         .padding(.horizontal, 9)
@@ -510,7 +510,7 @@ struct CameraScreen: View {
             }
             .foregroundStyle(Color(hex: 0x3D4352))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(
                 superResolutionScale == scale
                     ? Color(hex: selectedPalette.background[0]).opacity(0.98)
