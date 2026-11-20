@@ -92,7 +92,7 @@ private final class MultiPointAutofocusDetector {
                     bitmapInfo: CGImageAlphaInfo.none.rawValue
                   ) else { return false }
             context.interpolationQuality = .low
-            context.draw(image, in: CGRect(x: 0, y: 0, width: analysisWidth, height: analysisHeight))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(analysisWidth), height: CGFloat(analysisHeight)))
             return true
         }
         guard rendered else { return [] }
@@ -133,7 +133,7 @@ private final class MultiPointAutofocusDetector {
             return []
         }
         let average = scores.reduce(0, +) / Double(scores.count)
-        let threshold = max(25.0, average * 1.42, strongest * 0.34)
+        let threshold = max(25.0, max(average * 1.42, strongest * 0.34))
 
         var candidates: [(point: CGPoint, score: Double)] = []
         for row in 0..<rows {
@@ -153,8 +153,8 @@ private final class MultiPointAutofocusDetector {
 
                 candidates.append((
                     CGPoint(
-                        x: (Double(column) + 0.5) / Double(columns),
-                        y: (Double(row) + 0.5) / Double(rows)
+                        x: CGFloat((Double(column) + 0.5) / Double(columns)),
+                        y: CGFloat((Double(row) + 0.5) / Double(rows))
                     ),
                     score
                 ))
