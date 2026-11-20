@@ -285,6 +285,7 @@ struct CameraScreen: View {
             if selectedVideoResolution != value { selectedVideoResolution = value }
         }
         .onChange(of: camera.appliedHDR) { _, value in
+            guard let value else { return }
             if hdrEnabled != value { hdrEnabled = value }
         }
         .onChange(of: showLevel) { _, enabled in
@@ -693,7 +694,6 @@ struct CameraScreen: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(camera.focusStatus == .focusing)
                     .accessibilityLabel("自动对焦")
                 }
 
@@ -754,7 +754,7 @@ struct CameraScreen: View {
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
-            .disabled(camera.isRecording)
+            .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Menu {
                 Button("60 FPS") { selectedFrameRate = "60" }
@@ -771,7 +771,7 @@ struct CameraScreen: View {
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
-            .disabled(camera.isRecording)
+            .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Button {
                 hdrEnabled.toggle()

@@ -35,9 +35,9 @@ final class CameraService: ObservableObject {
     @Published private(set) var savedPhotoURLs: [URL] = []
     @Published private(set) var savedMediaURLs: [URL] = []
     @Published private(set) var isVideoConfigurationInProgress = false
-    @Published private(set) var appliedHDR = false
-    @Published private(set) var appliedFrameRate = 30
-    @Published private(set) var appliedResolution = "1080P"
+    @Published private(set) var appliedHDR: Bool? = nil
+    @Published private(set) var appliedFrameRate = 0
+    @Published private(set) var appliedResolution = ""
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
