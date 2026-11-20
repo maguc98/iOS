@@ -171,7 +171,7 @@ final class CameraService: ObservableObject {
     }
 
     private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
-        let multiplier = max(device.displayVideoZoomFactorMultiplier, 0.001)
+        let multiplier = self.displayZoomMultiplier(for: device)
         let target = min(
             max(1.0 / multiplier, device.minAvailableVideoZoomFactor),
             device.maxAvailableVideoZoomFactor
