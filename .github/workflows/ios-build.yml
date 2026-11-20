@@ -1,0 +1,73 @@
+name: POP CAM iOS Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: xcode-27
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Real-ESRGAN Core ML model
+        run: |
+          set -euo pipefail
+          MODEL_ARCHIVE="$RUNNER_TEMP/RealESRGAN-x4v3.mlpackage.zip"
+          MODEL_STAGING="$RUNNER_TEMP/realesrgan-model"
+          mkdir -p "$MODEL_STAGING" "POP CAM/Models"
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://huggingface.co/VincentGOURBIN/RealESRGAN-CoreML/resolve/main/RealESRGAN-x4v3.mlpackage.zip" \
+            -o "$MODEL_ARCHIVE"
+          echo "5a59e554794371b95fe61274b8a2040f1b3e274479abf15595dcdad0535afad4  $MODEL_ARCHIVE" | shasum -a 256 -c -
+          unzip -q "$MODEL_ARCHIVE" -d "$MODEL_STAGING"
+          MODEL_PACKAGE="$(find "$MODEL_STAGING" -type d -name '*.mlpackage' -print -quit)"
+          test -n "$MODEL_PACKAGE"
+          ditto "$MODEL_PACKAGE" "POP CAM/Models/RealESRGAN-x4v3.mlpackage"
+          echo "Model package prepared: $(du -sh "POP CAM/Models/RealESRGAN-x4v3.mlpackage" | cut -f1)"
+
+      - name: Render POP CAM app icon
+        run: |
+          set -euo pipefail
+          swift scripts/render_app_icon.swift "POP CAM/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          test -s "POP CAM/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned iOS app
+        run: |
+          xcodebuild \
+            -project "POP CAM.xcodeproj" \
+            -scheme "POP CAM" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/POP-CAM.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="$RUNNER_TEMP/POP-CAM.xcarchive/Products/Applications/POP CAM.app"
+          test -d "$APP_PATH"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qr "$GITHUB_WORKSPACE/POP-CAM-unsigned.ipa" Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: POP-CAM-unsigned-IPA
+          path: POP-CAM-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
