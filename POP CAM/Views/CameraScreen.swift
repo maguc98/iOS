@@ -3551,6 +3551,7 @@ private final class CameraLevelMonitor: ObservableObject {
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         referenceAttitude = nil
         stationarySince = nil
         hasRecenteredAtRest = false
@@ -3652,6 +3653,7 @@ private final class CameraLevelMonitor: ObservableObject {
     func stop() {
         guard manager.isDeviceMotionActive else { return }
         manager.stopDeviceMotionUpdates()
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
         referenceAttitude = nil
         stationarySince = nil
         hasRecenteredAtRest = false
