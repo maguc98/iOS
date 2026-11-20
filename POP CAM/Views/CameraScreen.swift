@@ -29,6 +29,7 @@ struct CameraScreen: View {
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "60"
     @State private var hdrEnabled = true
+    @State private var isSyncingVideoControls = false
 
     private var selectedPalette: MacaronPalette {
         MacaronPalette.all.first(where: { $0.id == selectedPaletteID }) ?? MacaronPalette.all[0]
@@ -191,6 +192,23 @@ struct CameraScreen: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(20)
                     }
+
+                    // During a long-press zoom drag, anchor the live indicator
+                    // inside the viewfinder's lower-right corner. The two rounded
+                    // corners follow the same edge, with a 14 pt safety inset.
+                    if isZoomDragActive {
+                        zoomDragIndicator
+                            .padding(.trailing, 14)
+                            .padding(.bottom, 14)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .transition(
+                                .move(edge: .trailing)
+                                    .combined(with: .opacity)
+                                    .combined(with: .scale(scale: 0.92, anchor: .bottomTrailing))
+                            )
+                            .zIndex(30)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(width: width, height: height)
                 .simultaneousGesture(
@@ -320,12 +338,15 @@ struct CameraScreen: View {
             if showLevel { levelMonitor.start() }
         }
         .onChange(of: selectedVideoResolution) { _, _ in
+            guard !isSyncingVideoControls else { return }
             camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
         }
         .onChange(of: selectedFrameRate) { _, _ in
+            guard !isSyncingVideoControls else { return }
             camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
         }
         .onChange(of: hdrEnabled) { _, _ in
+            guard !isSyncingVideoControls else { return }
             camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
         }
         .onChange(of: camera.isReady) { _, ready in
@@ -337,6 +358,7 @@ struct CameraScreen: View {
             }
         }
         .onChange(of: camera.videoConfigurationRevision) { _, _ in
+            isSyncingVideoControls = true
             let actualFrameRate = String(camera.appliedFrameRate)
             if selectedFrameRate != actualFrameRate {
                 selectedFrameRate = actualFrameRate
@@ -346,6 +368,9 @@ struct CameraScreen: View {
             }
             if let actualHDR = camera.appliedHDR, hdrEnabled != actualHDR {
                 hdrEnabled = actualHDR
+            }
+            DispatchQueue.main.async {
+                isSyncingVideoControls = false
             }
         }
         .onChange(of: showLevel) { _, enabled in
@@ -681,13 +706,6 @@ struct CameraScreen: View {
         .background(Color.white.opacity(0.76), in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1))
         .shadow(color: Color(hex: 0x8E9AAC).opacity(0.16), radius: 10, y: 4)
-        .overlay(alignment: .top) {
-            if isZoomDragActive {
-                zoomDragIndicator
-                    .offset(y: -55)
-                    .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.94)))
-            }
-        }
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.32)
                 .sequenced(before: DragGesture(minimumDistance: 0))
