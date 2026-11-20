@@ -98,6 +98,20 @@ final class CameraService: ObservableObject {
             self.session.addInput(input)
             self.activeInput = input
 
+            // Keep the camera in continuous AF/AE by default, as in a live-viewfinder camera.
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                }
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+                device.unlockForConfiguration()
+            } catch {
+                // The camera can still operate with its current system focus settings.
+            }
+
             if self.session.canAddOutput(self.photoOutput) {
                 self.session.addOutput(self.photoOutput)
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
@@ -397,11 +411,12 @@ final class CameraService: ObservableObject {
                 }
 
                 let canAutofocus: Bool
-                if device.isFocusModeSupported(.autoFocus) {
-                    device.focusMode = .autoFocus
-                    canAutofocus = true
-                } else if device.isFocusModeSupported(.continuousAutoFocus) {
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    // Retain continuous tracking after the user selects a focus point.
                     device.focusMode = .continuousAutoFocus
+                    canAutofocus = true
+                } else if device.isFocusModeSupported(.autoFocus) {
+                    device.focusMode = .autoFocus
                     canAutofocus = true
                 } else {
                     canAutofocus = false

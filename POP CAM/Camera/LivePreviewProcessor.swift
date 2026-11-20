@@ -92,6 +92,9 @@ private final class MultiPointAutofocusDetector {
                     bitmapInfo: CGImageAlphaInfo.none.rawValue
                   ) else { return false }
             context.interpolationQuality = .low
+            // Match the top-left coordinate space used by SwiftUI's displayed image.
+            context.translateBy(x: 0, y: CGFloat(analysisHeight))
+            context.scaleBy(x: 1, y: -1)
             context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(analysisWidth), height: CGFloat(analysisHeight)))
             return true
         }
