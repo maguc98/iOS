@@ -161,6 +161,7 @@ struct CameraScreen: View {
                             pitchDegrees: levelMonitor.stabilizationPitchDegrees,
                             yawDegrees: levelMonitor.stabilizationYawDegrees,
                             relativeRollDegrees: levelMonitor.stabilizationRollDegrees,
+                            visualMotion: camera.visualMotionEstimate,
                             isStabilizationActive: camera.isVideoStabilizationActive
                         )
                         .frame(width: 132, height: 110)
@@ -1794,15 +1795,15 @@ private struct StabilizationPreviewHUD: View {
     let pitchDegrees: Double
     let yawDegrees: Double
     let relativeRollDegrees: Double
+    let visualMotion: VisualMotionEstimate
     let isStabilizationActive: Bool
 
-    // The green frame is an estimated steady crop area. It reacts to the
-    // device's motion relative to the orientation at which the monitor started.
-    // It is intentionally not presented as AVFoundation's actual EIS crop data.
+    // The green frame combines measured frame-to-frame image translation with device attitude.
+    // It is a visual motion estimate, not AVFoundation's actual EIS crop metadata.
     private var estimatedCropOffset: CGSize {
         CGSize(
-            width: min(max(-yawDegrees * 1.25, -15), 15),
-            height: min(max(pitchDegrees * 1.25, -12), 12)
+            width: min(max(-CGFloat(yawDegrees * 0.55) - visualMotion.offsetX * 110, -18), 18),
+            height: min(max(CGFloat(pitchDegrees * 0.55) - visualMotion.offsetY * 110, -18), 18)
         )
     }
 
@@ -1839,7 +1840,7 @@ private struct StabilizationPreviewHUD: View {
                         Circle()
                             .fill(isStabilizationActive ? Color(hex: 0x83DFA6) : Color(hex: 0xFFE45E))
                             .frame(width: 5, height: 5)
-                        Text(isStabilizationActive ? "EIS · EST. AREA" : "EIS UNAVAILABLE")
+                        Text(visualMotion.confidence > 0.02 ? "VISUAL TRACK · \(Int(visualMotion.confidence * 100))%" : "VISUAL TRACKING…")
                             .font(.system(size: 6, weight: .heavy, design: .rounded))
                             .tracking(0.5)
                         Spacer(minLength: 0)
