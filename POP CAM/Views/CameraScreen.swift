@@ -12,7 +12,6 @@ struct CameraScreen: View {
     @State private var countdown: Int?
     @State private var showReview = false
     @State private var showAlbum = false
-    @State private var selectedVideo: LocalAlbumVideo?
     @State private var showSettings = false
     @State private var activeTool: CameraToolMode = .filters
     @State private var isToolPanelExpanded = false
@@ -86,6 +85,13 @@ struct CameraScreen: View {
                             x: min(max(location.x / width, 0), 1),
                             y: min(max(location.y / height, 0), 1)
                         )
+                        if activeTool == .autofocus {
+                            withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
+                                activeTool = .filters
+                                isToolPanelExpanded = false
+                            }
+                            camera.setAutofocusVisualizationEnabled(false)
+                        }
                         camera.focus(at: normalizedPoint)
                     }
 
@@ -238,24 +244,13 @@ struct CameraScreen: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAlbum) {
-            LocalVideoAlbumSheet(videos: camera.savedVideoURLs) { video in
-                selectedVideo = LocalAlbumVideo(url: video)
-            }
-            .presentationDetents([.medium, .large])
+            LocalMediaAlbumSheet(
+                media: camera.savedMediaURLs,
+                onDelete: { url in camera.deleteAlbumMedia(at: url) }
+            )
+            .presentationDetents([.large])
             .presentationCornerRadius(28)
             .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $selectedVideo) { item in
-            NavigationStack {
-                VideoPlayer(player: AVPlayer(url: item.url))
-                    .background(.black)
-                    .ignoresSafeArea(edges: .bottom)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("完成") { selectedVideo = nil }
-                        }
-                    }
-            }
         }
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
@@ -281,6 +276,16 @@ struct CameraScreen: View {
             if ready {
                 camera.configureVideo(resolution: selectedVideoResolution, frameRate: Int(selectedFrameRate) ?? 30, hdrEnabled: hdrEnabled)
             }
+        }
+        .onChange(of: camera.appliedFrameRate) { _, value in
+            let actual = String(value)
+            if selectedFrameRate != actual { selectedFrameRate = actual }
+        }
+        .onChange(of: camera.appliedResolution) { _, value in
+            if selectedVideoResolution != value { selectedVideoResolution = value }
+        }
+        .onChange(of: camera.appliedHDR) { _, value in
+            if hdrEnabled != value { hdrEnabled = value }
         }
         .onChange(of: showLevel) { _, enabled in
             if enabled { levelMonitor.start() } else { levelMonitor.stop() }
@@ -640,7 +645,7 @@ struct CameraScreen: View {
             ZStack {
                 HStack {
                     Button {
-                        camera.reloadSavedVideos()
+                        camera.reloadSavedMedia()
                         showAlbum = true
                     } label: {
                         ZStack {
@@ -658,7 +663,7 @@ struct CameraScreen: View {
                                     .font(.system(size: 19, weight: .medium))
                                     .foregroundStyle(Color(hex: 0x596171))
                             }
-                            if !camera.savedVideoURLs.isEmpty {
+                            if !camera.savedMediaURLs.isEmpty {
                                 Circle()
                                     .fill(Color(hex: 0xFF5967))
                                     .frame(width: 8, height: 8)
@@ -779,7 +784,7 @@ struct CameraScreen: View {
                     .frame(height: 30)
                     .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color.white.opacity(0.72), in: Capsule())
             }
-            .disabled(camera.isRecording)
+            .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Spacer(minLength: 0)
             Text("H.265")
@@ -1049,10 +1054,15 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
-        activeTool = .autofocus
-        isToolPanelExpanded = false
-        camera.setAutofocusVisualizationEnabled(!camera.isExposureFocusLocked)
-        camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+        let shouldEnable = activeTool != .autofocus
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
+            activeTool = shouldEnable ? .autofocus : .filters
+            isToolPanelExpanded = false
+        }
+        camera.setAutofocusVisualizationEnabled(shouldEnable && !camera.isExposureFocusLocked)
+        if shouldEnable {
+            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+        }
     }
 
     private func projectedAutofocusPoints(in size: CGSize) -> [AutofocusPoint] {
@@ -1093,69 +1103,222 @@ struct CameraScreen: View {
     }
 }
 
-private struct LocalAlbumVideo: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
-}
+private struct LocalMediaAlbumSheet: View {
+    let media: [URL]
+    let onDelete: (URL) -> Void
 
-private struct LocalVideoAlbumSheet: View {
-    let videos: [URL]
-    let onPlay: (URL) -> Void
+    @State private var selectedFilter = AlbumMediaFilter.all
+
+    private var filteredMedia: [URL] {
+        media.filter { url in
+            switch selectedFilter {
+            case .all: return true
+            case .photos: return !url.isVideoMedia
+            case .videos: return url.isVideoMedia
+            }
+        }
+    }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 9),
+        GridItem(.flexible(), spacing: 9),
+        GridItem(.flexible(), spacing: 9)
+    ]
 
     var body: some View {
         NavigationStack {
-            Group {
-                if videos.isEmpty {
+            VStack(spacing: 14) {
+                HStack(spacing: 8) {
+                    filterButton("全部", filter: .all, count: media.count)
+                    filterButton("照片", filter: .photos, count: media.filter { !$0.isVideoMedia }.count)
+                    filterButton("视频", filter: .videos, count: media.filter(\.isVideoMedia).count)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+
+                if filteredMedia.isEmpty {
                     ContentUnavailableView(
-                        "还没有视频",
-                        systemImage: "video",
-                        description: Text("录制完成的视频会保存在 POP CAM 的专属相册中。")
+                        selectedFilter == .videos ? "还没有视频" : selectedFilter == .photos ? "还没有照片" : "相册还是空的",
+                        systemImage: selectedFilter == .videos ? "video" : "photo.on.rectangle.angled",
+                        description: Text("在 POP CAM 拍摄并保存的照片和视频，会显示在这里。")
                     )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(videos, id: \.absoluteString) { url in
-                        Button {
-                            onPlay(url)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "video.fill")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0xFF6878))
-                                    .frame(width: 48, height: 48)
-                                    .background(Color(hex: 0xFFF0F2), in: RoundedRectangle(cornerRadius: 12))
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(url.deletingPathExtension().lastPathComponent)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .lineLimit(1)
-                                        .foregroundStyle(Color(hex: 0x3D4352))
-                                    Text(url.creationDateLabel)
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(Color(hex: 0x87909E))
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 10) {
+                            ForEach(filteredMedia, id: \.absoluteString) { url in
+                                NavigationLink {
+                                    LocalAlbumDetailView(url: url, onDelete: onDelete)
+                                } label: {
+                                    LocalAlbumThumbnail(url: url)
                                 }
-                                Spacer()
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(Color(hex: 0xFF6878))
+                                .buttonStyle(.plain)
                             }
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Color.white.opacity(0.72))
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 22)
                     }
-                    .scrollContentBackground(.hidden)
                 }
             }
             .background(
-                LinearGradient(colors: [Color(hex: 0xE9F8EF), Color(hex: 0xDDF3E7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(
+                    colors: [Color(hex: 0xFCEBF1), Color(hex: 0xF1ECFA), Color(hex: 0xE8F4FA)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             )
             .navigationTitle("POP CAM 相册")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(.light)
+    }
+
+    private func filterButton(_ title: String, filter: AlbumMediaFilter, count: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selectedFilter = filter
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                Text("\(count)").monospacedDigit().opacity(0.68)
+            }
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .background(
+                selectedFilter == filter ? Color.white.opacity(0.96) : Color.white.opacity(0.48),
+                in: Capsule()
+            )
+            .overlay(Capsule().stroke(Color.white.opacity(0.95), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private enum AlbumMediaFilter {
+    case all
+    case photos
+    case videos
+}
+
+private struct LocalAlbumThumbnail: View {
+    let url: URL
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if url.isVideoMedia {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Color(hex: 0xE4EAF2))
+                Image(systemName: "video.fill")
+                    .font(.system(size: 27, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xF26F82))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let image = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Color.white.opacity(0.65))
+                Image(systemName: "photo")
+                    .font(.system(size: 24))
+                    .foregroundStyle(Color(hex: 0x87909E))
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: url.isVideoMedia ? "play.fill" : "photo")
+                    .font(.system(size: 8, weight: .bold))
+                Text(url.isVideoMedia ? "视频" : "照片")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(.black.opacity(0.38), in: Capsule())
+            .padding(6)
+        }
+        .frame(height: 118)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.white.opacity(0.95), lineWidth: 1)
+        )
+    }
+}
+
+private struct LocalAlbumDetailView: View {
+    let url: URL
+    let onDelete: (URL) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer?
+    @State private var image: UIImage?
+    @State private var showDeleteConfirmation = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if url.isVideoMedia {
+                if let player {
+                    VideoPlayer(player: player)
+                        .onAppear { player.play() }
+                } else {
+                    ProgressView().tint(.white)
+                }
+            } else if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(10)
+            } else {
+                ContentUnavailableView("无法读取媒体", systemImage: "photo")
+                    .foregroundStyle(.white)
+            }
+        }
+        .navigationTitle(url.isVideoMedia ? "视频" : "照片")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+            }
+        }
+        .confirmationDialog("删除这项媒体？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                player?.pause()
+                onDelete(url)
+                dismiss()
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .onAppear {
+            if url.isVideoMedia {
+                player = AVPlayer(url: url)
+                player?.play()
+            } else {
+                image = UIImage(contentsOfFile: url.path)
+            }
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
         }
     }
 }
 
 private extension URL {
-    var creationDateLabel: String {
-        let date = (try? resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .now
-        return date.formatted(date: .numeric, time: .shortened)
+    var isVideoMedia: Bool {
+        ["mov", "mp4"].contains(pathExtension.lowercased())
     }
 }
 

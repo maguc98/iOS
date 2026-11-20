@@ -32,6 +32,12 @@ final class CameraService: ObservableObject {
     @Published private(set) var recordingDuration: TimeInterval = 0
     @Published private(set) var appliedVideoDescription = "4K · 60 FPS"
     @Published private(set) var savedVideoURLs: [URL] = []
+    @Published private(set) var savedPhotoURLs: [URL] = []
+    @Published private(set) var savedMediaURLs: [URL] = []
+    @Published private(set) var isVideoConfigurationInProgress = false
+    @Published private(set) var appliedHDR = false
+    @Published private(set) var appliedFrameRate = 30
+    @Published private(set) var appliedResolution = "1080P"
 
     let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
@@ -57,7 +63,7 @@ final class CameraService: ObservableObject {
     private var recordingTimer: Timer?
 
     func prepare() {
-        reloadSavedVideos()
+        reloadSavedMedia()
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             isAuthorized = true
@@ -181,67 +187,154 @@ final class CameraService: ObservableObject {
     }
 
     func configureVideo(resolution: String, frameRate: Int, hdrEnabled: Bool) {
+        guard isReady else { return }
+        isVideoConfigurationInProgress = true
         sessionQueue.async { [weak self] in
-            guard let self, let device = self.activeInput?.device, !self.movieOutput.isRecording else { return }
-            self.applyVideoConfiguration(device: device, resolution: resolution, frameRate: frameRate, hdrEnabled: hdrEnabled)
+            guard let self else { return }
+            guard let device = self.activeInput?.device, !self.movieOutput.isRecording else {
+                DispatchQueue.main.async { self.isVideoConfigurationInProgress = false }
+                return
+            }
+            self.applyVideoConfiguration(
+                device: device,
+                resolution: resolution,
+                frameRate: frameRate,
+                hdrEnabled: hdrEnabled
+            )
         }
     }
 
-    private func applyVideoConfiguration(device: AVCaptureDevice, resolution: String, frameRate: Int, hdrEnabled: Bool) {
-        let target = resolution == "4K" ? (width: 3840, height: 2160) : (width: 1920, height: 1080)
-        let requestedFPS = Double(frameRate)
-        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, Bool, Int32)? in
+    private func applyVideoConfiguration(
+        device: AVCaptureDevice,
+        resolution: String,
+        frameRate: Int,
+        hdrEnabled: Bool
+    ) {
+        let requestedResolution = resolution == "4K" ? "4K" : "1080P"
+        let requestedDimensions = requestedResolution == "4K"
+            ? (width: 3840, height: 2160)
+            : (width: 1920, height: 1080)
+        let requestedFPS = Double(max(24, min(frameRate, 60)))
+
+        let candidates = device.formats.compactMap { format -> (
+            format: AVCaptureDevice.Format,
+            dimensions: CMVideoDimensions,
+            supportsFPS: Bool,
+            supportsHDR: Bool,
+            actualFPS: Double
+        )? in
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            guard dimensions.width >= target.width, dimensions.height >= target.height else { return nil }
-            let supportsFPS = format.videoSupportedFrameRateRanges.contains {
+            guard dimensions.width >= requestedDimensions.width,
+                  dimensions.height >= requestedDimensions.height else { return nil }
+
+            let ranges = format.videoSupportedFrameRateRanges
+            guard !ranges.isEmpty else { return nil }
+
+            let matchingRange = ranges.first {
                 $0.minFrameRate <= requestedFPS && $0.maxFrameRate >= requestedFPS
             }
-            let supportsHDR = format.isVideoHDRSupported
-            return (format, supportsFPS, dimensions.width)
-        }.sorted {
-            if $0.1 != $1.1 { return $0.1 && !$1.1 }
-            if hdrEnabled && $0.0.isVideoHDRSupported != $1.0.isVideoHDRSupported {
-                return $0.0.isVideoHDRSupported
+            let nearestRange = matchingRange ?? ranges.min {
+                let lhs = abs(min(max(requestedFPS, $0.minFrameRate), $0.maxFrameRate) - requestedFPS)
+                let rhs = abs(min(max(requestedFPS, $1.minFrameRate), $1.maxFrameRate) - requestedFPS)
+                return lhs < rhs
+            }!
+
+            let actualFPS = min(max(requestedFPS, nearestRange.minFrameRate), nearestRange.maxFrameRate)
+            return (
+                format: format,
+                dimensions: dimensions,
+                supportsFPS: matchingRange != nil,
+                supportsHDR: format.isVideoHDRSupported,
+                actualFPS: actualFPS
+            )
+        }.sorted { lhs, rhs in
+            if hdrEnabled && lhs.supportsHDR != rhs.supportsHDR {
+                return lhs.supportsHDR && !rhs.supportsHDR
             }
-            return $0.2 < $1.2
+            if lhs.supportsFPS != rhs.supportsFPS {
+                return lhs.supportsFPS && !rhs.supportsFPS
+            }
+            let lhsArea = Int64(lhs.dimensions.width) * Int64(lhs.dimensions.height)
+            let rhsArea = Int64(rhs.dimensions.width) * Int64(rhs.dimensions.height)
+            if lhsArea != rhsArea { return lhsArea < rhsArea }
+            return lhs.actualFPS > rhs.actualFPS
         }
 
         guard let chosen = candidates.first else {
-            DispatchQueue.main.async { self.errorMessage = "当前镜头不支持所选视频规格，请尝试 1080P 或 30 FPS。" }
+            DispatchQueue.main.async {
+                self.isVideoConfigurationInProgress = false
+                self.errorMessage = "当前镜头没有可用的 \(requestedResolution) 视频格式，请尝试 1080P 或 30 FPS。"
+            }
             return
         }
 
+        let useHDR = hdrEnabled && chosen.supportsHDR
+        let frameDuration = CMTime(
+            seconds: 1.0 / max(1.0, chosen.actualFPS),
+            preferredTimescale: 1_000_000_000
+        )
+
+        session.beginConfiguration()
+        var configurationError: Error?
         do {
             try device.lockForConfiguration()
-            device.activeFormat = chosen.0
-            let actualFPS = chosen.1 ? requestedFPS : min(30, chosen.0.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30)
-            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(actualFPS))
+            defer { device.unlockForConfiguration() }
+
+            device.isAutoVideoFrameRateEnabled = false
+            device.automaticallyAdjustsVideoHDREnabled = false
+            if device.activeFormat !== chosen.format {
+                device.activeFormat = chosen.format
+            }
+
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
 
-            let useHDR = hdrEnabled && chosen.0.isVideoHDRSupported
-            if device.isVideoHDREnabled != useHDR {
+            if chosen.format.isVideoHDRSupported {
                 device.isVideoHDREnabled = useHDR
-            }
-            device.unlockForConfiguration()
-
-            if let connection = movieOutput.connection(with: .video),
-               movieOutput.availableVideoCodecTypes.contains(.hevc) {
-                movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
-            }
-
-            let dimensions = CMVideoFormatDescriptionGetDimensions(chosen.0.formatDescription)
-            let actualResolution = dimensions.width >= 3840 && dimensions.height >= 2160 ? "4K" : "1080P"
-            DispatchQueue.main.async {
-                self.appliedVideoDescription = "\(actualResolution) · \(Int(actualFPS)) FPS" + (useHDR ? " · HDR" : "")
-                if actualFPS != requestedFPS || (hdrEnabled && !useHDR) {
-                    self.errorMessage = "设备不支持完整组合，已自动调整为 \(self.appliedVideoDescription)。"
-                } else {
-                    self.errorMessage = nil
-                }
+            } else if device.isVideoHDREnabled {
+                device.isVideoHDREnabled = false
             }
         } catch {
-            DispatchQueue.main.async { self.errorMessage = "无法应用视频参数：\(error.localizedDescription)" }
+            configurationError = error
+        }
+        session.commitConfiguration()
+
+        if let configurationError {
+            DispatchQueue.main.async {
+                self.isVideoConfigurationInProgress = false
+                self.errorMessage = "无法应用视频参数：\(configurationError.localizedDescription)"
+            }
+            return
+        }
+
+        let actualResolution = chosen.dimensions.width >= 3840 && chosen.dimensions.height >= 2160
+            ? "4K"
+            : "1080P"
+        let actualFrameRate = Int(chosen.actualFPS.rounded())
+        let description = "\(actualResolution) · \(actualFrameRate) FPS" + (useHDR ? " · HDR" : "")
+
+        DispatchQueue.main.async {
+            self.isVideoConfigurationInProgress = false
+            self.appliedResolution = actualResolution
+            self.appliedFrameRate = actualFrameRate
+            self.appliedHDR = useHDR
+            self.appliedVideoDescription = description
+
+            let needsFallback =
+                actualResolution != requestedResolution ||
+                actualFrameRate != Int(requestedFPS) ||
+                useHDR != hdrEnabled
+
+            if needsFallback {
+                self.errorMessage = "设备不支持所选组合，已自动调整为 \(description)。"
+            } else {
+                self.errorMessage = nil
+            }
+        }
+
+        if let connection = movieOutput.connection(with: .video),
+           movieOutput.availableVideoCodecTypes.contains(.hevc) {
+            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
         }
     }
 
@@ -325,7 +418,7 @@ final class CameraService: ObservableObject {
             let filename = "POP_\(timestamp)_\(UUID().uuidString.prefix(6)).mov"
             let destinationURL = destinationFolder.appendingPathComponent(filename)
             try FileManager.default.moveItem(at: url, to: destinationURL)
-            reloadSavedVideos()
+            reloadSavedMedia()
             DispatchQueue.main.async {
                 self.errorMessage = "视频已保存到 POP CAM 相册。"
             }
@@ -344,7 +437,7 @@ final class CameraService: ObservableObject {
         return directory
     }
 
-    func reloadSavedVideos() {
+    func reloadSavedMedia() {
         do {
             let directory = try appAlbumDirectory()
             let urls = try FileManager.default.contentsOfDirectory(
@@ -352,15 +445,43 @@ final class CameraService: ObservableObject {
                 includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
                 options: [.skipsHiddenFiles]
             )
-            .filter { $0.pathExtension.lowercased() == "mov" }
+            .filter {
+                ["mov", "mp4", "jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased())
+            }
             .sorted {
                 let first = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 let second = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
                 return first > second
             }
-            DispatchQueue.main.async { self.savedVideoURLs = urls }
+
+            let videos = urls.filter { ["mov", "mp4"].contains($0.pathExtension.lowercased()) }
+            let photos = urls.filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
+            DispatchQueue.main.async {
+                self.savedMediaURLs = urls
+                self.savedVideoURLs = videos
+                self.savedPhotoURLs = photos
+            }
         } catch {
-            DispatchQueue.main.async { self.savedVideoURLs = [] }
+            DispatchQueue.main.async {
+                self.savedMediaURLs = []
+                self.savedVideoURLs = []
+                self.savedPhotoURLs = []
+            }
+        }
+    }
+
+    func deleteAlbumMedia(at url: URL) {
+        do {
+            let directory = try appAlbumDirectory().standardizedFileURL
+            let file = url.standardizedFileURL
+            guard file.deletingLastPathComponent() == directory else {
+                errorMessage = "无法删除相册目录以外的文件。"
+                return
+            }
+            try FileManager.default.removeItem(at: file)
+            reloadSavedMedia()
+        } catch {
+            errorMessage = "删除失败：\(error.localizedDescription)"
         }
     }
 
@@ -557,15 +678,22 @@ final class CameraService: ObservableObject {
     }
 
     func savePhoto(_ image: UIImage, completion: @escaping (Bool) -> Void) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async { completion(false) }
+        do {
+            let directory = try appAlbumDirectory()
+            guard let data = image.jpegData(compressionQuality: 0.96) else {
+                completion(false)
                 return
             }
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
-            } completionHandler: { success, _ in
-                DispatchQueue.main.async { completion(success) }
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let filename = "POP_PHOTO_\(timestamp)_\(UUID().uuidString.prefix(6)).jpg"
+            let destination = directory.appendingPathComponent(filename)
+            try data.write(to: destination, options: .atomic)
+            reloadSavedMedia()
+            completion(true)
+        } catch {
+            DispatchQueue.main.async {
+                self.errorMessage = "保存照片到 POP CAM 相册失败：\(error.localizedDescription)"
+                completion(false)
             }
         }
     }
