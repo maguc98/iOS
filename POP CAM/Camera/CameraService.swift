@@ -272,7 +272,6 @@ final class CameraService: ObservableObject {
             return
         }
 
-        let useHDR = hdrEnabled && chosen.supportsHDR
         let frameDuration = CMTime(
             seconds: 1.0 / max(1.0, chosen.actualFPS),
             preferredTimescale: 1_000_000_000
@@ -288,10 +287,8 @@ final class CameraService: ObservableObject {
                 device.activeFormat = chosen.format
             }
 
-            // Setting a new active format resets automatic frame-rate handling.
-            // Keep HDR auto-management enabled and let AVFoundation decide the
-            // actual HDR stream state for the selected supported format.
-            device.automaticallyAdjustsVideoHDREnabled = true
+            // Leave AVFoundation's default automatic HDR management untouched.
+            // The selected format determines whether this stream can be HDR.
             device.activeVideoMinFrameDuration = frameDuration
             device.activeVideoMaxFrameDuration = frameDuration
         } catch {
