@@ -48,7 +48,7 @@ struct CameraScreen: View {
                 let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.535
+                let centerY = previewGeometry.size.height * 0.495
 
                 ZStack {
                     Group {
@@ -170,7 +170,7 @@ struct CameraScreen: View {
                             )
                             .position(
                                 x: maskGeometry.size.width / 2,
-                                y: maskGeometry.size.height * 0.535
+                                y: maskGeometry.size.height * 0.495
                             )
                     }
                 }
@@ -190,7 +190,7 @@ struct CameraScreen: View {
                 VStack(spacing: 0) {
                     header
                     captureFormatBar
-                        .padding(.top, 14)
+                        .padding(.top, 8)
                     Spacer(minLength: 18)
                     HStack(alignment: .center, spacing: 8) {
                         toolCapsule
@@ -204,7 +204,7 @@ struct CameraScreen: View {
                         .padding(.top, 10)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 104)
+                .padding(.top, 82)
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -693,7 +693,7 @@ struct CameraScreen: View {
     }
 
     private var captureFormatBar: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 4) {
             Menu {
                 Button("4K") { selectedVideoResolution = "4K" }
                 Button("1080P") { selectedVideoResolution = "1080P" }
@@ -702,9 +702,10 @@ struct CameraScreen: View {
                     Text(selectedVideoResolution)
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color(hex: 0x3D4352))
-                .padding(.horizontal, 13)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 8)
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
@@ -717,9 +718,10 @@ struct CameraScreen: View {
                     Text("\(selectedFrameRate) FPS")
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color(hex: 0x3D4352))
-                .padding(.horizontal, 13)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 8)
                 .frame(height: 30)
                 .background(Color.white.opacity(0.82), in: Capsule())
             }
@@ -730,18 +732,19 @@ struct CameraScreen: View {
                 Text("HDR")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .foregroundStyle(Color(hex: 0x3D4352))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 10)
+                    .fixedSize(horizontal: true, vertical: false)
                     .frame(height: 30)
                     .background(hdrEnabled ? Color(hex: 0xFFE45E) : Color.white.opacity(0.72), in: Capsule())
             }
 
             Spacer(minLength: 0)
             Text("H.265")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x778091))
             Rectangle().fill(Color(hex: 0xC9D4DE)).frame(width: 1, height: 18)
             Text("10-bit")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(hex: 0x778091))
             Menu {
                 Button("H.265") {}
