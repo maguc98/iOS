@@ -1547,47 +1547,80 @@ private enum AlbumMediaFilter {
 
 private struct LocalAlbumThumbnail: View {
     let url: URL
+    @State private var thumbnail: UIImage?
+    @State private var isLoading = true
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            if url.isVideoMedia {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(Color(hex: 0xE4EAF2))
-                Image(systemName: "video.fill")
-                    .font(.system(size: 27, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xF26F82))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(Color.white.opacity(0.65))
-                Image(systemName: "photo")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Color(hex: 0x87909E))
+            Group {
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(Color(hex: 0xE7EAF0))
+                        .overlay {
+                            if isLoading {
+                                ProgressView().tint(Color(hex: 0x8B91A0))
+                            } else {
+                                Image(systemName: url.isVideoMedia ? "video" : "photo")
+                                    .font(.system(size: 24, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0x8B91A0))
+                            }
+                        }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
 
-            HStack(spacing: 4) {
-                Image(systemName: url.isVideoMedia ? "play.fill" : "photo")
-                    .font(.system(size: 8, weight: .bold))
-                Text(url.isVideoMedia ? "视频" : "照片")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                Spacer(minLength: 0)
+            if url.isVideoMedia {
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(videoDurationLabel)
+                        .font(.system(size: 9, weight: .bold, design: .rounded).monospacedDigit())
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.58), in: Capsule())
+                .padding(6)
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
-            .background(.black.opacity(0.38), in: Capsule())
-            .padding(6)
         }
         .frame(height: 118)
         .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(Color.white.opacity(0.95), lineWidth: 1)
-        )
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.95), lineWidth: 1))
+        .task(id: url) { await loadThumbnail() }
+    }
+
+    private var videoDurationLabel: String {
+        guard url.isVideoMedia else { return "" }
+        let asset = AVURLAsset(url: url)
+        let seconds = Int(CMTimeGetSeconds(asset.duration).isFinite ? CMTimeGetSeconds(asset.duration) : 0)
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        isLoading = true
+        let fileURL = url
+        let result = await Task.detached(priority: .utility) { () -> UIImage? in
+            if fileURL.isVideoMedia {
+                let asset = AVURLAsset(url: fileURL)
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                generator.maximumSize = CGSize(width: 480, height: 480)
+                if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
+                    return UIImage(cgImage: cgImage)
+                }
+                return nil
+            }
+            return UIImage(contentsOfFile: fileURL.path)
+        }.value
+        guard !Task.isCancelled else { return }
+        thumbnail = result
+        isLoading = false
     }
 }
 
