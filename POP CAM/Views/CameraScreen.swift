@@ -744,16 +744,21 @@ struct CameraScreen: View {
     }
 
     private var zoomControl: some View {
-        HStack(spacing: 5) {
-            zoomButton(0.5)
+        HStack(spacing: 3) {
             zoomButton(1)
             zoomButton(2)
+            zoomButton(3)
             zoomButton(5)
-            zoomButton(10)
         }
-        .padding(5)
-        .padding(4)
-        .background(Color.white, in: Capsule())
+        .padding(.horizontal, 5)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(Color.white.opacity(0.88), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0xA6B7C9).opacity(0.15), radius: 10, y: 4)
+        .contentShape(Capsule())
         .simultaneousGesture(
             DragGesture(minimumDistance: 8)
                 .onChanged { drag in
@@ -761,25 +766,29 @@ struct CameraScreen: View {
                         zoomDragStartValue = CGFloat(zoom)
                     }
                     if !isZoomDragActive {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.84)) {
                             isZoomDragActive = true
                         }
                     }
 
-                    // Direct horizontal dragging continuously adjusts zoom.
-                    // The logarithmic scale keeps proportional zoom changes natural.
-                    let startStops = log2(max(0.5, Double(zoomDragStartValue ?? CGFloat(zoom))))
+                    // Apple-camera-style press and horizontal drag:
+                    // keep proportional (logarithmic) zoom movement while
+                    // allowing quick stops at the 1x / 2x / 3x / 5x presets.
+                    let startStops = log2(max(1.0, Double(zoomDragStartValue ?? CGFloat(zoom))))
                     let dragStops = Double(drag.translation.width) / 155.0
                     let targetZoom = CGFloat(pow(2.0, startStops + dragStops))
                     applyZoom(targetZoom, animated: false)
                 }
                 .onEnded { _ in
                     zoomDragStartValue = nil
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(.easeOut(duration: 0.20)) {
                         isZoomDragActive = false
                     }
                 }
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("变焦倍率")
+        .accessibilityHint("点按 1 倍、2 倍、3 倍或 5 倍快速切换；左右滑动连续变焦")
     }
 
     private var zoomDragIndicator: some View {
@@ -804,7 +813,7 @@ struct CameraScreen: View {
                         .frame(height: 3)
                         .position(x: geometry.size.width / 2, y: 4)
 
-                    ForEach([0.5, 1.0, 2.0, 5.0, 10.0], id: \.self) { mark in
+                    ForEach([1.0, 2.0, 3.0, 5.0], id: \.self) { mark in
                         Circle()
                             .fill(Color(hex: 0x7E8998).opacity(0.78))
                             .frame(width: 4, height: 4)
@@ -827,29 +836,49 @@ struct CameraScreen: View {
     }
 
     private func zoomTrackPosition(_ value: Double, width: CGFloat) -> CGFloat {
-        let bounded = min(max(value, 0.5), 10)
-        let lower = log2(0.5)
+        let bounded = min(max(value, 1), 10)
+        let lower = log2(1.0)
         let upper = log2(10.0)
         let progress = (log2(bounded) - lower) / (upper - lower)
         return CGFloat(progress) * width
     }
 
+    private func isZoomPresetSelected(_ value: Double) -> Bool {
+        let presets = [1.0, 2.0, 3.0, 5.0]
+        let nearest = presets.min {
+            abs(log2(max(1, zoom) / $0)) < abs(log2(max(1, zoom) / $1))
+        }
+        return nearest == value
+    }
+
     private func zoomButton(_ value: Double) -> some View {
-        Button {
+        let selected = isZoomPresetSelected(value)
+        return Button {
+            UISelectionFeedbackGenerator().selectionChanged()
             applyZoom(CGFloat(value), animated: true)
         } label: {
-            Text(value == 0.5 ? "0.5×" : "\(Int(value))×")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(hex: 0x3D4352))
-                .frame(maxWidth: .infinity)
-                .frame(height: 34)
+            Text("\(Int(value))×")
+                .font(.system(size: selected ? 12 : 11, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(selected ? Color(hex: 0x3D4352) : Color(hex: 0x68798D))
+                .frame(width: 38, height: 38)
                 .background {
-                    if abs(zoom - value) < 0.04 {
-                        Capsule().fill(Color(hex: 0xFFE45E))
-                    }
+                    Circle()
+                        .fill(selected ? Color(hex: 0xFFE45E) : Color.white.opacity(0.48))
                 }
+                .overlay {
+                    Circle()
+                        .stroke(
+                            selected ? Color.white.opacity(0.95) : Color.white.opacity(0.55),
+                            lineWidth: selected ? 1.5 : 0.8
+                        )
+                }
+                .scaleEffect(selected ? 1.03 : 0.92)
+                .contentTransition(.numericText())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(Int(value)) 倍变焦")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func applyZoom(_ value: CGFloat, animated: Bool = false) {
