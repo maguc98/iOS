@@ -35,6 +35,7 @@ final class CameraService: ObservableObject {
     @Published var captureID = 0
     @Published var errorMessage: String?
     @Published private(set) var isRecording = false
+    @Published private(set) var isPhotoCaptureInProgress = false
     @Published private(set) var recordingDuration: TimeInterval = 0
     @Published private(set) var appliedVideoDescription = "4K · 30 FPS · HDR"
     @Published private(set) var savedVideoURLs: [URL] = []
@@ -68,6 +69,7 @@ final class CameraService: ObservableObject {
     }()
     private var activeInput: AVCaptureDeviceInput?
     private var photoProcessor: PhotoCaptureProcessor?
+    private var mediaReloadRequestID: UInt64 = 0
     private var movieDelegate: MovieFileRecordingDelegate?
     private var audioInput: AVCaptureDeviceInput?
     private var isRecordingStartPending = false
@@ -767,6 +769,12 @@ final class CameraService: ObservableObject {
     }
 
     func reloadSavedMedia() {
+        // Each refresh receives a generation. A slower, older directory scan
+        // must never overwrite the result of a newer scan (for example, after
+        // deleting a photo while the album is already loading).
+        mediaReloadRequestID &+= 1
+        let requestID = mediaReloadRequestID
+
         // Directory enumeration and file metadata reads can be surprisingly
         // expensive once the album contains many originals. Keep all I/O off
         // the main thread so entering the camera stays responsive.
@@ -794,15 +802,17 @@ final class CameraService: ObservableObject {
                 let videos = urls.filter { ["mov", "mp4"].contains($0.pathExtension.lowercased()) }
                 let photos = urls.filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
                 DispatchQueue.main.async {
-                    self?.savedMediaURLs = urls
-                    self?.savedVideoURLs = videos
-                    self?.savedPhotoURLs = photos
+                    guard let self, self.mediaReloadRequestID == requestID else { return }
+                    self.savedMediaURLs = urls
+                    self.savedVideoURLs = videos
+                    self.savedPhotoURLs = photos
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self?.savedMediaURLs = []
-                    self?.savedVideoURLs = []
-                    self?.savedPhotoURLs = []
+                    guard let self, self.mediaReloadRequestID == requestID else { return }
+                    self.savedMediaURLs = []
+                    self.savedVideoURLs = []
+                    self.savedPhotoURLs = []
                 }
             }
         }
@@ -824,7 +834,16 @@ final class CameraService: ObservableObject {
     }
 
     func capturePhoto() {
-        guard isReady else { return }
+        // AVCapturePhotoOutput callbacks are asynchronous. Do not start another
+        // still capture until the current image has finished decoding/cropping;
+        // this keeps the single delegate reference from being overwritten by
+        // rapid shutter taps and avoids overlapping full-resolution renders.
+        guard isReady,
+              !isPhotoCaptureInProgress,
+              !isRecording,
+              !isRecordingStartPending else { return }
+        isPhotoCaptureInProgress = true
+
         let settings = AVCapturePhotoSettings()
         settings.photoQualityPrioritization = .quality
         if flashEnabled, let device = activeInput?.device, device.hasFlash {
@@ -833,7 +852,9 @@ final class CameraService: ObservableObject {
         let processor = PhotoCaptureProcessor { [weak self] image in
             guard let image else {
                 DispatchQueue.main.async {
-                    self?.errorMessage = "拍摄失败，请再试一次。"
+                    guard let self else { return }
+                    self.isPhotoCaptureInProgress = false
+                    self.errorMessage = "拍摄失败，请再试一次。"
                 }
                 return
             }
@@ -849,6 +870,7 @@ final class CameraService: ObservableObject {
                         guard let self else { return }
                         self.capturedImage = rendered
                         self.captureID += 1
+                        self.isPhotoCaptureInProgress = false
                     }
                 }
             }
