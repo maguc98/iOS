@@ -1012,6 +1012,8 @@ final class CameraService: ObservableObject {
                 DispatchQueue.main.async {
                     self.isManualFocusEnabled = enabled
                     self.isExposureFocusLocked = false
+                    self.confirmedFocusPoint = nil
+                    self.focusStatus = .idle
                     self.manualLensPosition = device.lensPosition
                 }
             } catch {
@@ -1057,7 +1059,15 @@ final class CameraService: ObservableObject {
                     }
                 }
                 device.unlockForConfiguration()
-                DispatchQueue.main.async { self.isExposureFocusLocked = locked }
+                DispatchQueue.main.async {
+                    self.isExposureFocusLocked = locked
+                    if !locked {
+                        // Continuous AF is active again, so the previous
+                        // single-shot target is no longer guaranteed to remain in focus.
+                        self.confirmedFocusPoint = nil
+                        self.focusStatus = .idle
+                    }
+                }
             } catch {
                 DispatchQueue.main.async {
                     self.errorMessage = "暂时无法锁定对焦与曝光。"
