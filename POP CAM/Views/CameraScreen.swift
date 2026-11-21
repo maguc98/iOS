@@ -80,7 +80,7 @@ struct CameraScreen: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         } else {
-                            CameraPreview(session: camera.session)
+                            CameraPreview(session: camera.session, stabilizationEnabled: videoStabilizationEnabled)
                         }
                     }
                     .frame(width: width, height: height)
