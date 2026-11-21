@@ -1577,7 +1577,7 @@ struct CameraScreen: View {
                     Divider().overlay(Color(hex: 0xDCE3EB)).padding(.leading, 48)
                     settingToggle(
                         title: "视频防抖",
-                        subtitle: "启用相机支持的实时防抖，并应用到录像",
+                        subtitle: "预留边缘画幅，通过电子裁切稳定实时预览与录像",
                         symbol: "viewfinder",
                         isOn: $videoStabilizationEnabled
                     )
