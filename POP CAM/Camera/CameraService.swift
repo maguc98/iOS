@@ -471,6 +471,18 @@ final class CameraService: ObservableObject {
             return false
         }
 
+        let selectedSourceAspect = Double(min(chosen.dimensions.width, chosen.dimensions.height)) /
+            Double(max(chosen.dimensions.width, chosen.dimensions.height))
+        guard abs(selectedSourceAspect - 0.75) < 0.025 else {
+            DispatchQueue.main.async {
+                self.isVideoConfigurationInProgress = false
+                if reportsErrors {
+                    self.errorMessage = "当前镜头不支持 3:4 片门全开录像。请切换镜头，或尝试 1080P。"
+                }
+            }
+            return false
+        }
+
         // Validate the exact rational duration against this exact format before
         // touching AVCaptureDevice's Objective-C properties.
         let durationIsSupported =
@@ -544,11 +556,8 @@ final class CameraService: ObservableObject {
             : "1080P"
         let actualFrameRate = Int((1.0 / CMTimeGetSeconds(chosen.frameDuration)).rounded())
         let actualHDR = hdrEnabled && chosen.supportsHDR && device.isVideoHDREnabled
-        let sourceAspect = Double(min(chosen.dimensions.width, chosen.dimensions.height)) /
-            Double(max(chosen.dimensions.width, chosen.dimensions.height))
-        let description = "\(actualResolution) · \(actualFrameRate) FPS" +
-            (actualHDR ? " · HDR" : "") +
-            (abs(sourceAspect - 0.75) < 0.025 ? " · 3:4 OPEN GATE" : " · 3:4 CROP")
+        let description = "\(actualResolution) · \(actualFrameRate) FPS · 3:4 OPEN GATE" +
+            (actualHDR ? " · HDR" : "")
 
         DispatchQueue.main.async {
             self.isVideoConfigurationInProgress = false
