@@ -30,7 +30,7 @@ struct CameraScreen: View {
     @State private var motionStatusHUDDragOrigin: CGPoint?
     @State private var showGrid = false
     @State private var showLevel = false
-    @State private var zoom: Double = 1
+    @State private var zoom: Double = 0.5
     @State private var pinchStartZoom: CGFloat?
     @State private var zoomDragStartValue: CGFloat?
     @State private var isZoomDragActive = false
@@ -205,8 +205,22 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    // Show one marker at the real AF point only after the camera confirms
-                    // that lens movement has settled. Never infer focus from scene texture.
+                    // Restore the original live multi-point AF visualization:
+                    // several small green brackets track high-detail areas around
+                    // the selected subject while the camera performs real hardware AF.
+                    if !camera.isManualFocusEnabled,
+                       !camera.autofocusPoints.isEmpty {
+                        MultiPointAutofocusOverlay(
+                            points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
+                        )
+                        .frame(width: width, height: height)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                        .zIndex(12)
+                    }
+
+                    // The central reticle is the confirmed hardware focus point;
+                    // it appears after the lens settles, alongside the tracking brackets.
                     if camera.focusStatus == .focused, let point = camera.confirmedFocusPoint {
                         FocusReticle()
                             .stroke(
@@ -247,22 +261,7 @@ struct CameraScreen: View {
                         .zIndex(20)
                     }
 
-                    // During a long-press zoom drag, anchor the live indicator
-                    // inside the viewfinder's lower-right corner. The two rounded
-                    // corners follow the same edge, with a 14 pt safety inset.
-                    if isZoomDragActive {
-                        zoomDragIndicator
-                            .padding(.trailing, 14)
-                            .padding(.bottom, 14)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .transition(
-                                .move(edge: .trailing)
-                                    .combined(with: .opacity)
-                                    .combined(with: .scale(scale: 0.92, anchor: .bottomTrailing))
-                            )
-                            .zIndex(30)
-                            .allowsHitTesting(false)
-                    }
+
                 }
                 .frame(width: width, height: height)
                 .simultaneousGesture(
@@ -746,22 +745,25 @@ struct CameraScreen: View {
     private var zoomControl: some View {
         Group {
             if isZoomDragActive {
-                HStack(spacing: 0) {
-                    zoomDragEdge(direction: .left)
-                    Spacer(minLength: 8)
-                    zoomDragEdge(direction: .right)
+                HStack {
+                    Image(systemName: "chevron.left")
+                    Spacer(minLength: 24)
+                    Image(systemName: "chevron.right")
                 }
-                .padding(.horizontal, 12)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(hex: 0x52657A))
+                .padding(.horizontal, 18)
                 .frame(height: 46)
                 .transition(.opacity.combined(with: .scale(scale: 0.94)))
             } else {
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
+                    zoomButton(0.5)
                     zoomButton(1)
                     zoomButton(2)
                     zoomButton(3)
                     zoomButton(5)
                 }
-                .padding(.horizontal, 5)
+                .padding(.horizontal, 4)
                 .padding(.vertical, 4)
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
@@ -773,8 +775,22 @@ struct CameraScreen: View {
         }
         .shadow(color: Color(hex: 0xA6B7C9).opacity(0.15), radius: 10, y: 4)
         .contentShape(Capsule())
-        .gesture(
-            LongPressGesture(minimumDuration: 0.24)
+        .overlay(alignment: .top) {
+            if isZoomDragActive {
+                zoomDragIndicator
+                    .offset(y: -55)
+                    .transition(
+                        .move(edge: .bottom)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.94))
+                    )
+            }
+        }
+        // Simultaneous recognition lets the child preset buttons keep their taps.
+        // A long press followed by a horizontal drag is the only gesture that
+        // switches to the two-arrow continuous-zoom state.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.32)
                 .sequenced(before: DragGesture(minimumDistance: 0))
                 .onChanged { value in
                     guard case .second(true, let drag?) = value else { return }
@@ -788,49 +804,21 @@ struct CameraScreen: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
-                    // Hold, then drag horizontally for continuous logarithmic zoom.
-                    let startStops = log2(max(1.0, Double(zoomDragStartValue ?? CGFloat(zoom))))
+                    let startStops = log2(max(0.5, Double(zoomDragStartValue ?? CGFloat(zoom))))
                     let dragStops = Double(drag.translation.width) / 155.0
                     let targetZoom = CGFloat(pow(2.0, startStops + dragStops))
                     applyZoom(targetZoom, animated: false)
                 }
                 .onEnded { _ in
                     zoomDragStartValue = nil
-                    withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
+                    withAnimation(.easeOut(duration: 0.18)) {
                         isZoomDragActive = false
                     }
                 }
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("变焦倍率")
-        .accessibilityHint("点按 1 倍、2 倍、3 倍或 5 倍切换；按住后左右拖动连续变焦")
-    }
-
-    private enum ZoomDragDirection {
-        case left
-        case right
-    }
-
-    private func zoomDragEdge(direction: ZoomDragDirection) -> some View {
-        HStack(spacing: 3) {
-            if direction == .left {
-                Image(systemName: "chevron.left")
-            }
-            HStack(spacing: 2) {
-                ForEach(0..<5, id: \.self) { _ in
-                    Capsule()
-                        .fill(Color(hex: 0x64768A).opacity(0.72))
-                        .frame(width: 1.5, height: 13)
-                }
-            }
-            if direction == .right {
-                Image(systemName: "chevron.right")
-            }
-        }
-        .font(.system(size: 11, weight: .bold))
-        .foregroundStyle(Color(hex: 0x52657A))
-        .frame(minWidth: 25)
-        .accessibilityHidden(true)
+        .accessibilityHint("点按 0.5 倍、1 倍、2 倍、3 倍或 5 倍快速切换；按住后左右拖动连续变焦")
     }
 
     private var zoomDragIndicator: some View {
@@ -855,7 +843,7 @@ struct CameraScreen: View {
                         .frame(height: 3)
                         .position(x: geometry.size.width / 2, y: 4)
 
-                    ForEach([1.0, 2.0, 3.0, 5.0], id: \.self) { mark in
+                    ForEach([0.5, 1.0, 2.0, 3.0, 5.0], id: \.self) { mark in
                         Circle()
                             .fill(Color(hex: 0x7E8998).opacity(0.78))
                             .frame(width: 4, height: 4)
@@ -878,17 +866,17 @@ struct CameraScreen: View {
     }
 
     private func zoomTrackPosition(_ value: Double, width: CGFloat) -> CGFloat {
-        let bounded = min(max(value, 1), 10)
-        let lower = log2(1.0)
-        let upper = log2(10.0)
+        let bounded = min(max(value, 0.5), 5)
+        let lower = log2(0.5)
+        let upper = log2(5.0)
         let progress = (log2(bounded) - lower) / (upper - lower)
         return CGFloat(progress) * width
     }
 
     private func isZoomPresetSelected(_ value: Double) -> Bool {
-        let presets = [1.0, 2.0, 3.0, 5.0]
+        let presets = [0.5, 1.0, 2.0, 3.0, 5.0]
         let nearest = presets.min {
-            abs(log2(max(1, zoom) / $0)) < abs(log2(max(1, zoom) / $1))
+            abs(log2(max(0.5, zoom) / $0)) < abs(log2(max(0.5, zoom) / $1))
         }
         return nearest == value
     }
@@ -899,11 +887,11 @@ struct CameraScreen: View {
             UISelectionFeedbackGenerator().selectionChanged()
             applyZoom(CGFloat(value), animated: true)
         } label: {
-            Text("\(Int(value))×")
-                .font(.system(size: selected ? 12 : 11, weight: .bold, design: .rounded))
+            Text(value == 0.5 ? "0.5×" : "\(Int(value))×")
+                .font(.system(size: selected ? 10 : 9, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(selected ? Color(hex: 0x3D4352) : Color(hex: 0x68798D))
-                .frame(width: 38, height: 38)
+                .frame(width: 36, height: 38)
                 .background {
                     Circle()
                         .fill(selected ? Color(hex: 0xFFE45E) : Color.white.opacity(0.48))
@@ -919,12 +907,12 @@ struct CameraScreen: View {
                 .contentTransition(.numericText())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(Int(value)) 倍变焦")
+        .accessibilityLabel(value == 0.5 ? "0.5 倍变焦" : "\(Int(value)) 倍变焦")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func applyZoom(_ value: CGFloat, animated: Bool = false) {
-        let clamped = min(max(value, 0.5), 10)
+        let clamped = min(max(value, 0.5), 5)
         zoom = Double(clamped)
         camera.setZoom(clamped, animated: animated)
     }
@@ -1296,7 +1284,7 @@ struct CameraScreen: View {
                         get: { zoom },
                         set: { value in applyZoom(CGFloat(value), animated: false) }
                     ),
-                    in: 0.5...10,
+                    in: 0.5...5,
                     step: 0.1
                 )
                 .tint(Color(hex: 0xFFE45E))
@@ -1375,7 +1363,8 @@ struct CameraScreen: View {
                 Button {
                     camera.setManualFocusEnabled(false)
                     camera.setExposureFocusLocked(false)
-                    camera.setAutofocusVisualizationEnabled(false)
+                    camera.setAutofocusVisualizationEnabled(true)
+                    camera.focus(at: CGPoint(x: 0.5, y: 0.5))
                 } label: {
                     Text("自动")
                         .font(.system(size: 10, weight: .heavy, design: .rounded))
@@ -1759,12 +1748,33 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
-        // The shutter-side viewfinder control is the only autofocus button.
-        // A tap requests a real center focus; the marker appears only on success.
+        // Keep the original live multi-point focus visualization enabled in AF mode.
+        // The hardware focus still targets the center; small brackets outline
+        // high-detail regions around the subject and the reticle confirms lens lock.
         withAnimation(.easeOut(duration: 0.16)) {
             showAutofocusCapsule = false
         }
+        camera.setAutofocusVisualizationEnabled(true)
         camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+    }
+
+    private func projectedAutofocusPoints(in size: CGSize) -> [AutofocusPoint] {
+        guard let image = camera.previewImage, size.width > 0, size.height > 0 else { return [] }
+        let sourceAspect = CGFloat(image.width) / CGFloat(image.height)
+        let targetAspect = size.width / size.height
+
+        return camera.autofocusPoints.compactMap { point in
+            var projected = point.location
+            if sourceAspect > targetAspect {
+                let visibleWidth = targetAspect / sourceAspect
+                projected.x = (point.location.x - (1 - visibleWidth) / 2) / visibleWidth
+            } else {
+                let visibleHeight = sourceAspect / targetAspect
+                projected.y = (point.location.y - (1 - visibleHeight) / 2) / visibleHeight
+            }
+            guard (0...1).contains(projected.x), (0...1).contains(projected.y) else { return nil }
+            return AutofocusPoint(id: point.id, location: projected, strength: point.strength)
+        }
     }
 
     private var autofocusSettingsSheet: some View {
@@ -3005,6 +3015,56 @@ private enum AlbumMainTab {
     case favorites
 }
 
+private enum LocalAlbumImageDecoder {
+    static func load(from url: URL, maximumPixelSize: Int) -> UIImage? {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+            return UIImage(contentsOfFile: url.path)
+        }
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return UIImage(data: data)
+        }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(256, maximumPixelSize),
+            kCGImageSourceShouldCache: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        if let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary),
+           thumbnail.width > 0, thumbnail.height > 0 {
+            return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
+        }
+
+        // Some HEIC/JPEG variants do not produce an ImageIO thumbnail even
+        // though UIKit can decode their data. Keep this as a secondary path.
+        if let decoded = UIImage(data: data) {
+            guard let cgImage = decoded.cgImage else { return decoded }
+            let longestSide = max(cgImage.width, cgImage.height)
+            guard longestSide > maximumPixelSize else { return decoded }
+            let ratio = CGFloat(maximumPixelSize) / CGFloat(longestSide)
+            let targetSize = CGSize(
+                width: max(1, (CGFloat(cgImage.width) * ratio).rounded(.down)),
+                height: max(1, (CGFloat(cgImage.height) * ratio).rounded(.down))
+            )
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = false
+            return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+                decoded.draw(in: CGRect(origin: .zero, size: targetSize))
+            }
+        }
+
+        if let fullImage = CGImageSourceCreateImageAtIndex(
+            source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        ) {
+            return UIImage(cgImage: fullImage, scale: 1, orientation: .up)
+        }
+        return UIImage(contentsOfFile: url.path)
+    }
+}
+
 private struct LocalAlbumThumbnail: View {
     let url: URL
 
@@ -3074,17 +3134,7 @@ private struct LocalAlbumThumbnail: View {
                 }
                 return nil
             }
-            guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 480,
-                kCGImageSourceShouldCache: false
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                return nil
-            }
-            return UIImage(cgImage: cgImage)
+            return LocalAlbumImageDecoder.load(from: fileURL, maximumPixelSize: 480)
         }.value
         guard !Task.isCancelled else { return }
         withAnimation(.easeInOut(duration: 0.24)) {
@@ -3152,6 +3202,7 @@ private struct LocalAlbumDetailView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Keep the actual photo inside a camera-like rounded viewfinder.
             // Reserve a clear lane above the footer so controls never cover the image.
             .padding(.horizontal, 12)
@@ -3564,30 +3615,33 @@ private struct AlbumViewerPage: View {
                     loadingPlaceholder
                 }
             } else if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
-                    .scaleEffect(zoomScale)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .contentShape(Rectangle())
-                    .gesture(
-                        MagnificationGesture()
-                            .onChanged { value in
-                                zoomScale = min(max(value, 1), 5)
-                            }
-                            .onEnded { _ in
-                                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                                    if zoomScale < 1.05 { zoomScale = 1 }
+                GeometryReader { geometry in
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .scaleEffect(zoomScale)
+                        .clipped()
+                        .contentShape(Rectangle())
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    zoomScale = min(max(value, 1), 5)
                                 }
+                                .onEnded { _ in
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                                        if zoomScale < 1.05 { zoomScale = 1 }
+                                    }
+                                }
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
+                                zoomScale = zoomScale > 1.1 ? 1 : 2
                             }
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
-                            zoomScale = zoomScale > 1.1 ? 1 : 2
                         }
-                    }
-                    .transition(.opacity)
+                        .transition(.opacity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isActive {
                 loadingPlaceholder
             }
@@ -3613,31 +3667,8 @@ private struct AlbumViewerPage: View {
                 player?.pause()
                 player = nil
                 let fileURL = url
-                let loadedImage = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-                    guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
-                        return nil
-                    }
-
-                    // Prefer a decoded, screen-sized thumbnail. This avoids
-                    // allocating the full 12 MP bitmap just to show the viewer.
-                    let options: [CFString: Any] = [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 2048,
-                        kCGImageSourceShouldCache: true
-                    ]
-                    if let thumbnail = CGImageSourceCreateThumbnailAtIndex(
-                        source, 0, options as CFDictionary
-                    ) {
-                        return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
-                    }
-
-                    // A fallback protects older/oddly-encoded image files from
-                    // leaving the detail viewer stuck on an empty canvas.
-                    if let fallback = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-                        return UIImage(cgImage: fallback, scale: 1, orientation: .up)
-                    }
-                    return UIImage(contentsOfFile: fileURL.path)
+                let loadedImage = await Task.detached(priority: .userInitiated) {
+                    LocalAlbumImageDecoder.load(from: fileURL, maximumPixelSize: 2048)
                 }.value
 
                 guard !Task.isCancelled else { return }

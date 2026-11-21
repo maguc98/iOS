@@ -65,13 +65,16 @@ struct PhotoReviewView: View {
                     .padding(.top, 2)
                 }
 
-                Image(uiImage: displayImage)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .padding(.horizontal, 18)
-
-                    .frame(maxHeight: .infinity)
+                GeometryReader { geometry in
+                    Image(uiImage: displayImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minHeight: 180)
+                .padding(.horizontal, 18)
 
                 VStack(spacing: 9) {
                     if isEnhancing {

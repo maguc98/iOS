@@ -213,11 +213,10 @@ final class CameraService: ObservableObject {
     }
 
     private func setDefaultZoom(for device: AVCaptureDevice) -> CGFloat {
-        // Translate the user-facing 1x value into this device's native zoom
-        // coordinate system. Virtual dual-wide cameras can use a 0.5 display
-        // multiplier, where native 2.0 is the actual 1x wide-lens field of view.
+        // Start at the widest available field of view. On a virtual dual-wide
+        // camera, the display multiplier maps native 1.0 to the user-facing 0.5x view.
         let multiplier = displayZoomMultiplier(for: device)
-        let requestedHardwareZoom = 1.0 / multiplier
+        let requestedHardwareZoom = 0.5 / multiplier
         let target = min(
             max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
             device.maxAvailableVideoZoomFactor
@@ -604,6 +603,10 @@ final class CameraService: ObservableObject {
             self.appliedVideoDescription = description
             self.videoConfigurationRevision &+= 1
 
+            // A format change can reset a virtual camera's active lens/zoom.
+            // Re-apply the same displayed value after the new format is committed.
+            self.setZoom(self.zoomFactor, animated: false)
+
             let needsFallback =
                 actualResolution != requestedResolution ||
                 actualFrameRate != Int(requestedFPS) ||
@@ -895,6 +898,9 @@ final class CameraService: ObservableObject {
         let requestID = focusRequestID
         confirmedFocusPoint = nil
         focusStatus = .focusing
+        if !isManualFocusEnabled {
+            liveProcessor.isAutofocusVisualizationEnabled = true
+        }
 
         // AVCaptureDevice focus/exposure POI uses unrotated landscape sensor
         // coordinates; the portrait viewfinder point must be rotated.
@@ -1012,6 +1018,9 @@ final class CameraService: ObservableObject {
     }
 
     func setManualFocusEnabled(_ enabled: Bool) {
+        if enabled {
+            setAutofocusVisualizationEnabled(false)
+        }
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
             guard device.isLockingFocusWithCustomLensPositionSupported else {
@@ -1065,6 +1074,9 @@ final class CameraService: ObservableObject {
         }
     }
     func setExposureFocusLocked(_ locked: Bool) {
+        if locked {
+            setAutofocusVisualizationEnabled(false)
+        }
         sessionQueue.async { [weak self] in
             guard let self, let device = self.activeInput?.device else { return }
             do {
@@ -1114,7 +1126,7 @@ final class CameraService: ObservableObject {
             let requestedHardwareZoom = value / multiplier
             let hardwareZoom = min(
                 max(requestedHardwareZoom, device.minAvailableVideoZoomFactor),
-                min(CGFloat(10) / multiplier, device.maxAvailableVideoZoomFactor)
+                min(CGFloat(5) / multiplier, device.maxAvailableVideoZoomFactor)
             )
             let displayZoom = hardwareZoom * multiplier
 
