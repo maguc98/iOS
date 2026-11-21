@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Photos
 import SwiftUI
 import UIKit
@@ -427,19 +428,9 @@ final class CameraService: ObservableObject {
                 frameDuration: frameDuration
             )
         }.sorted { lhs, rhs in
-            if lhs.supportsFPS != rhs.supportsFPS {
-                return lhs.supportsFPS && !rhs.supportsFPS
-            }
-            // Rank the closest achievable frame rate before HDR capability.
-            // An HDR-capable format can still capture SDR when HDR is disabled.
-            let lhsFPSDistance = abs(lhs.actualFPS - requestedFPS)
-            let rhsFPSDistance = abs(rhs.actualFPS - requestedFPS)
-            if abs(lhsFPSDistance - rhsFPSDistance) > 0.01 {
-                return lhsFPSDistance < rhsFPSDistance
-            }
-            // Open Gate: prefer the sensor's native 4:3 readout (portrait 3:4
-            // after the capture connection rotates it), rather than a smaller
-            // 16:9 mode that has already discarded the top and bottom of the sensor.
+            // Open Gate has priority over the requested frame rate: keep the
+            // full 4:3 sensor readout first, then choose the closest supported FPS.
+            // Rotating that source by 90 degrees produces a native portrait 3:4 frame.
             let lhsShortSide = Double(min(lhs.dimensions.width, lhs.dimensions.height))
             let lhsLongSide = Double(max(lhs.dimensions.width, lhs.dimensions.height))
             let rhsShortSide = Double(min(rhs.dimensions.width, rhs.dimensions.height))
@@ -448,6 +439,14 @@ final class CameraService: ObservableObject {
             let rhsGateError = abs(rhsShortSide / max(rhsLongSide, 1) - 0.75)
             if abs(lhsGateError - rhsGateError) > 0.005 {
                 return lhsGateError < rhsGateError
+            }
+            if lhs.supportsFPS != rhs.supportsFPS {
+                return lhs.supportsFPS && !rhs.supportsFPS
+            }
+            let lhsFPSDistance = abs(lhs.actualFPS - requestedFPS)
+            let rhsFPSDistance = abs(rhs.actualFPS - requestedFPS)
+            if abs(lhsFPSDistance - rhsFPSDistance) > 0.01 {
+                return lhsFPSDistance < rhsFPSDistance
             }
             if lhs.supportsHDR != rhs.supportsHDR {
                 return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
@@ -538,7 +537,11 @@ final class CameraService: ObservableObject {
             : "1080P"
         let actualFrameRate = Int((1.0 / CMTimeGetSeconds(chosen.frameDuration)).rounded())
         let actualHDR = hdrEnabled && chosen.supportsHDR && device.isVideoHDREnabled
-        let description = "\(actualResolution) · \(actualFrameRate) FPS" + (actualHDR ? " · HDR" : "")
+        let sourceAspect = Double(min(chosen.dimensions.width, chosen.dimensions.height)) /
+            Double(max(chosen.dimensions.width, chosen.dimensions.height))
+        let description = "\(actualResolution) · \(actualFrameRate) FPS" +
+            (actualHDR ? " · HDR" : "") +
+            (abs(sourceAspect - 0.75) < 0.025 ? " · 3:4 OPEN GATE" : " · 3:4 CROP")
 
         DispatchQueue.main.async {
             self.isVideoConfigurationInProgress = false
