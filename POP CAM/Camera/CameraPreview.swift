@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    let stabilizationEnabled: Bool
 
     func makeUIView(context: Context) -> PreviewSurface {
         let view = PreviewSurface()
@@ -28,7 +29,7 @@ struct CameraPreview: UIViewRepresentable {
         // Keep the fallback native preview consistent with the stabilized
         // video-data and movie-output connections.
         if connection.isVideoStabilizationSupported {
-            connection.preferredVideoStabilizationMode = .standard
+            connection.preferredVideoStabilizationMode = stabilizationEnabled ? .standard : .off
         }
     }
 }
