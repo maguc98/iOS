@@ -29,6 +29,7 @@ final class CameraService: ObservableObject {
     @Published private(set) var supportsManualFocus = false
     @Published private(set) var manualLensPosition: Float = 0.5
     @Published var focusStatus: CameraFocusStatus = .idle
+    @Published private(set) var confirmedFocusPoint: CGPoint?
     @Published private(set) var autofocusPoints: [AutofocusPoint] = []
     @Published var capturedImage: UIImage?
     @Published var captureID = 0
@@ -72,6 +73,7 @@ final class CameraService: ObservableObject {
     private var isRecordingStartPending = false
     private var recordingStartedAt: Date?
     private var recordingTimer: Timer?
+    private var focusRequestID = 0
 
     func prepare() {
         reloadSavedMedia()
@@ -867,13 +869,26 @@ final class CameraService: ObservableObject {
             x: min(max(point.x, 0), 1),
             y: min(max(point.y, 0), 1)
         )
-        // AVCaptureDevice focus/exposure POI always uses the unrotated
-        // landscape sensor coordinate system (home button on the right).
-        // The viewfinder is portrait, so rotate the tap point into sensor space.
+        focusRequestID &+= 1
+        let requestID = focusRequestID
+        confirmedFocusPoint = nil
+        focusStatus = .focusing
+
+        // AVCaptureDevice focus/exposure POI uses unrotated landscape sensor
+        // coordinates; the portrait viewfinder point must be rotated.
         let devicePoint = CGPoint(x: normalized.y, y: 1 - normalized.x)
 
         sessionQueue.async { [weak self] in
-            guard let self, let device = self.activeInput?.device else { return }
+            guard let self else { return }
+            guard let device = self.activeInput?.device else {
+                DispatchQueue.main.async {
+                    guard self.focusRequestID == requestID else { return }
+                    self.confirmedFocusPoint = nil
+                    self.focusStatus = .unavailable
+                }
+                return
+            }
+
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
@@ -887,8 +902,6 @@ final class CameraService: ObservableObject {
 
                 let canAutofocus: Bool
                 if device.isFocusModeSupported(.autoFocus) {
-                    // Explicit one-shot autofocus reliably starts a new focus
-                    // operation even when continuous AF was already selected.
                     device.focusMode = .autoFocus
                     canAutofocus = true
                 } else if device.isFocusModeSupported(.continuousAutoFocus) {
@@ -906,29 +919,41 @@ final class CameraService: ObservableObject {
                 }
 
                 DispatchQueue.main.async {
+                    guard self.focusRequestID == requestID else { return }
                     self.isExposureFocusLocked = false
+                    self.confirmedFocusPoint = nil
                     self.focusStatus = canAutofocus ? .focusing : .unavailable
                 }
 
                 guard canAutofocus else { return }
-                self.monitorFocusSettling(device: device, startedAt: ProcessInfo.processInfo.systemUptime)
+                self.monitorFocusSettling(
+                    device: device,
+                    startedAt: ProcessInfo.processInfo.systemUptime,
+                    point: normalized,
+                    requestID: requestID
+                )
             } catch {
-                // Keep focus feedback inline in the viewfinder; do not present an alert.
                 DispatchQueue.main.async {
+                    guard self.focusRequestID == requestID else { return }
+                    self.confirmedFocusPoint = nil
                     self.focusStatus = .unavailable
                 }
             }
         }
     }
 
-    private func monitorFocusSettling(device: AVCaptureDevice, startedAt: TimeInterval) {
+    private func monitorFocusSettling(
+        device: AVCaptureDevice,
+        startedAt: TimeInterval,
+        point: CGPoint,
+        requestID: Int
+    ) {
         sessionQueue.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self,
+                  self.focusRequestID == requestID,
                   self.activeInput?.device.uniqueID == device.uniqueID else { return }
 
             let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-            // Give the autofocus system time to begin moving before treating
-            // a stable lens position as a completed focus attempt.
             if elapsed >= 0.35 && !device.isAdjustingFocus {
                 do {
                     try device.lockForConfiguration()
@@ -938,18 +963,28 @@ final class CameraService: ObservableObject {
                     device.isSubjectAreaChangeMonitoringEnabled = true
                     device.unlockForConfiguration()
                 } catch {
-                    // Keep the completed one-shot focus even if continuous
-                    // tracking cannot be re-enabled on this capture format.
+                    // The completed one-shot focus remains valid for this request.
                 }
                 DispatchQueue.main.async {
+                    guard self.focusRequestID == requestID else { return }
+                    // Publish exactly the hardware AF point only after the lens
+                    // has settled. Never infer fake focus boxes from scene texture.
+                    self.confirmedFocusPoint = point
                     self.focusStatus = .focused
                 }
             } else if elapsed >= 3.0 {
                 DispatchQueue.main.async {
+                    guard self.focusRequestID == requestID else { return }
+                    self.confirmedFocusPoint = nil
                     self.focusStatus = .unavailable
                 }
             } else {
-                self.monitorFocusSettling(device: device, startedAt: startedAt)
+                self.monitorFocusSettling(
+                    device: device,
+                    startedAt: startedAt,
+                    point: point,
+                    requestID: requestID
+                )
             }
         }
     }
