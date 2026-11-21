@@ -817,7 +817,7 @@ struct CameraScreen: View {
                 Image(systemName: "chevron.left")
             }
             HStack(spacing: 2) {
-                ForEach(0..<5, id: \\.self) { _ in
+                ForEach(0..<5, id: \.self) { _ in
                     Capsule()
                         .fill(Color(hex: 0x64768A).opacity(0.72))
                         .frame(width: 1.5, height: 13)
