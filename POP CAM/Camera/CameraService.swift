@@ -613,7 +613,7 @@ final class CameraService: ObservableObject {
                     resolution: resolution,
                     frameRate: frameRate,
                     hdrEnabled: hdrEnabled,
-                    reportsErrors: false
+                    reportsErrors: true
                 ) else {
                     DispatchQueue.main.async { self.isRecordingStartPending = false }
                     return
