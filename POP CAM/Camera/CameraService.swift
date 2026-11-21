@@ -97,6 +97,21 @@ final class CameraService: ObservableObject {
         }
     }
 
+    func pauseSessionForOverlay() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.session.isRunning else { return }
+            self.session.stopRunning()
+        }
+    }
+
+    func resumeSessionAfterOverlay() {
+        sessionQueue.async { [weak self] in
+            guard let self, !self.session.isRunning else { return }
+            self.session.startRunning()
+            self.applyStabilizationOnSessionQueue(enabled: self.isVideoStabilizationPreferenceEnabled())
+        }
+    }
+
     private func configureSession() {
         let requestedPosition = cameraPosition
         sessionQueue.async { [weak self] in
@@ -144,8 +159,15 @@ final class CameraService: ObservableObject {
             }
 
             self.videoOutput.alwaysDiscardsLateVideoFrames = true
+            // Use a native bi-planar YUV buffer instead of converting every
+            // camera frame to BGRA. Core Image consumes this format directly.
+            self.videoOutput.automaticallyConfiguresOutputBufferDimensions = true
+            let preferredPixelFormat: OSType =
+                self.videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+                ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                : kCVPixelFormatType_32BGRA
             self.videoOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                kCVPixelBufferPixelFormatTypeKey as String: preferredPixelFormat
             ]
             self.videoOutput.setSampleBufferDelegate(self.liveProcessor, queue: self.videoQueue)
             if self.session.canAddOutput(self.videoOutput) {
@@ -743,34 +765,43 @@ final class CameraService: ObservableObject {
     }
 
     func reloadSavedMedia() {
-        do {
-            let directory = try appAlbumDirectory()
-            let urls = try FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
-                options: [.skipsHiddenFiles]
-            )
-            .filter {
-                ["mov", "mp4", "jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased())
-            }
-            .sorted {
-                let first = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-                let second = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-                return first > second
-            }
+        // Directory enumeration and file metadata reads can be surprisingly
+        // expensive once the album contains many originals. Keep all I/O off
+        // the main thread so entering the camera stays responsive.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let directory = documents.appendingPathComponent("POP CAM Album", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let urls = try FileManager.default.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+                    options: [.skipsHiddenFiles]
+                )
+                .filter {
+                    ["mov", "mp4", "jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased())
+                }
+                .sorted {
+                    let firstValues = try? $0.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+                    let secondValues = try? $1.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+                    let first = firstValues?.creationDate ?? firstValues?.contentModificationDate ?? .distantPast
+                    let second = secondValues?.creationDate ?? secondValues?.contentModificationDate ?? .distantPast
+                    return first > second
+                }
 
-            let videos = urls.filter { ["mov", "mp4"].contains($0.pathExtension.lowercased()) }
-            let photos = urls.filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
-            DispatchQueue.main.async {
-                self.savedMediaURLs = urls
-                self.savedVideoURLs = videos
-                self.savedPhotoURLs = photos
-            }
-        } catch {
-            DispatchQueue.main.async {
-                self.savedMediaURLs = []
-                self.savedVideoURLs = []
-                self.savedPhotoURLs = []
+                let videos = urls.filter { ["mov", "mp4"].contains($0.pathExtension.lowercased()) }
+                let photos = urls.filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
+                DispatchQueue.main.async {
+                    self?.savedMediaURLs = urls
+                    self?.savedVideoURLs = videos
+                    self?.savedPhotoURLs = photos
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.savedMediaURLs = []
+                    self?.savedVideoURLs = []
+                    self?.savedPhotoURLs = []
+                }
             }
         }
     }
@@ -790,49 +821,6 @@ final class CameraService: ObservableObject {
         }
     }
 
-    /// Crops every still to the same centered portrait 3:4 frame used by the
-    /// live viewfinder. The crop is applied after EXIF orientation is normalized,
-    /// so portrait shots from the landscape sensor are not accidentally rotated.
-    private func cropPhotoToThreeFour(_ image: UIImage) -> UIImage {
-        guard let source = image.cgImage else { return image }
-
-        let exifOrientation: Int32
-        switch image.imageOrientation {
-        case .up: exifOrientation = 1
-        case .upMirrored: exifOrientation = 2
-        case .down: exifOrientation = 3
-        case .downMirrored: exifOrientation = 4
-        case .leftMirrored: exifOrientation = 5
-        case .right: exifOrientation = 6
-        case .rightMirrored: exifOrientation = 7
-        case .left: exifOrientation = 8
-        @unknown default: exifOrientation = 1
-        }
-
-        let oriented = CIImage(cgImage: source).oriented(forExifOrientation: exifOrientation)
-        let extent = oriented.extent
-        let maximumWidth = min(extent.width, extent.height * 0.75)
-        // Keep integer output dimensions divisible by 3:4 to guarantee the ratio.
-        let outputWidth = floor(maximumWidth / 3) * 3
-        let outputHeight = outputWidth * 4 / 3
-        guard outputWidth >= 3, outputHeight >= 4 else { return image }
-
-        let cropRect = CGRect(
-            x: floor(extent.midX - outputWidth / 2),
-            y: floor(extent.midY - outputHeight / 2),
-            width: outputWidth,
-            height: outputHeight
-        )
-        let cropped = oriented
-            .cropped(to: cropRect)
-            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
-        let outputRect = CGRect(origin: .zero, size: cropRect.size)
-        guard let cgImage = CIContext().createCGImage(cropped, from: outputRect) else {
-            return image
-        }
-        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
-    }
-
     func capturePhoto() {
         guard isReady else { return }
         let settings = AVCapturePhotoSettings()
@@ -841,14 +829,26 @@ final class CameraService: ObservableObject {
             settings.flashMode = .on
         }
         let processor = PhotoCaptureProcessor { [weak self] image in
-            DispatchQueue.main.async {
-                guard let self, let image else {
+            guard let image else {
+                DispatchQueue.main.async {
                     self?.errorMessage = "拍摄失败，请再试一次。"
-                    return
                 }
-                let threeFourImage = self.cropPhotoToThreeFour(image)
-                self.capturedImage = self.selectedFilter.apply(to: threeFourImage)
-                self.captureID += 1
+                return
+            }
+
+            // Decode, crop to 3:4, and render the selected filter off the main
+            // thread. Full-resolution still processing must never block SwiftUI.
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let filter = self.selectedFilter
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let rendered = CapturedPhotoRenderer.process(image, filter: filter)
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.capturedImage = rendered
+                        self.captureID += 1
+                    }
+                }
             }
         }
         photoProcessor = processor
@@ -1095,26 +1095,81 @@ final class CameraService: ObservableObject {
     }
 
     func savePhoto(_ image: UIImage, completion: @escaping (Bool) -> Void) {
-        do {
-            let directory = try appAlbumDirectory()
-            guard let data = image.jpegData(compressionQuality: 0.96) else {
-                completion(false)
-                return
-            }
-            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            let filename = "POP_PHOTO_\(timestamp)_\(UUID().uuidString.prefix(6)).jpg"
-            let destination = directory.appendingPathComponent(filename)
-            try data.write(to: destination, options: .atomic)
-            reloadSavedMedia()
-            completion(true)
-        } catch {
-            DispatchQueue.main.async {
-                self.errorMessage = "保存照片到 POP CAM 相册失败：\(error.localizedDescription)"
-                completion(false)
+        // JPEG encoding of a 12 MP still can stall the UI; encode and write on
+        // a utility queue, then publish the result on the main thread.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do {
+                let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let directory = documents.appendingPathComponent("POP CAM Album", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                guard let data = image.jpegData(compressionQuality: 0.96) else {
+                    DispatchQueue.main.async { completion(false) }
+                    return
+                }
+                let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                let filename = "POP_PHOTO_\(timestamp)_\(UUID().uuidString.prefix(6)).jpg"
+                let destination = directory.appendingPathComponent(filename)
+                try data.write(to: destination, options: .atomic)
+                DispatchQueue.main.async {
+                    self?.reloadSavedMedia()
+                    completion(true)
+                }
+            } catch {
+                let message = "保存照片到 POP CAM 相册失败：\(error.localizedDescription)"
+                DispatchQueue.main.async {
+                    self?.errorMessage = message
+                    completion(false)
+                }
             }
         }
     }
 }
+private enum CapturedPhotoRenderer {
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+
+    static func process(_ image: UIImage, filter: CameraFilter) -> UIImage {
+        guard let source = image.cgImage else { return image }
+
+        let exifOrientation: Int32
+        switch image.imageOrientation {
+        case .up: exifOrientation = 1
+        case .upMirrored: exifOrientation = 2
+        case .down: exifOrientation = 3
+        case .downMirrored: exifOrientation = 4
+        case .leftMirrored: exifOrientation = 5
+        case .right: exifOrientation = 6
+        case .rightMirrored: exifOrientation = 7
+        case .left: exifOrientation = 8
+        @unknown default: exifOrientation = 1
+        }
+
+        let oriented = CIImage(cgImage: source).oriented(forExifOrientation: exifOrientation)
+        let extent = oriented.extent
+        let maximumWidth = min(extent.width, extent.height * 0.75)
+        let outputWidth = floor(maximumWidth / 3) * 3
+        let outputHeight = outputWidth * 4 / 3
+        guard outputWidth >= 3, outputHeight >= 4 else { return image }
+
+        let cropRect = CGRect(
+            x: floor(extent.midX - outputWidth / 2),
+            y: floor(extent.midY - outputHeight / 2),
+            width: outputWidth,
+            height: outputHeight
+        )
+        let outputRect = CGRect(origin: .zero, size: cropRect.size)
+        let cropped = oriented
+            .cropped(to: cropRect)
+            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+            .cropped(to: outputRect)
+        let filtered = filter.apply(to: cropped).cropped(to: outputRect)
+
+        guard let rendered = context.createCGImage(filtered, from: outputRect) else {
+            return image
+        }
+        return UIImage(cgImage: rendered, scale: 1, orientation: .up)
+    }
+}
+
 private final class MovieFileRecordingDelegate: NSObject, AVCaptureFileOutputRecordingDelegate {
     private let completion: (URL, Error?) -> Void
 
