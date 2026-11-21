@@ -3446,6 +3446,8 @@ private struct AlbumViewerPage: View {
     @State private var image: UIImage?
     @State private var player: AVPlayer?
     @State private var zoomScale: CGFloat = 1
+    @State private var loadFailed = false
+    @State private var reloadToken = 0
 
     var body: some View {
         ZStack {
@@ -3458,7 +3460,7 @@ private struct AlbumViewerPage: View {
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .padding(.horizontal, 8)
                 } else if isActive {
-                    ProgressView().tint(Color(hex: 0x7C91A8))
+                    loadingPlaceholder
                 }
             } else if let image {
                 Image(uiImage: image)
@@ -3486,18 +3488,20 @@ private struct AlbumViewerPage: View {
                     }
                     .transition(.opacity)
             } else if isActive {
-                ProgressView().tint(Color(hex: 0x7C91A8))
+                loadingPlaceholder
             }
         }
         .padding(.vertical, 6)
-        .task(id: "\(url.path)|\(isActive)") {
+        .task(id: "\(url.path)|\(isActive)|\(reloadToken)") {
             guard isActive else {
                 image = nil
+                loadFailed = false
                 player?.pause()
                 player = nil
                 return
             }
 
+            loadFailed = false
             if url.isVideoMedia {
                 image = nil
                 player?.pause()
@@ -3509,23 +3513,42 @@ private struct AlbumViewerPage: View {
                 player = nil
                 let fileURL = url
                 let loadedImage = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-                    guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { return nil }
+                    guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
+                        return nil
+                    }
+
+                    // Prefer a decoded, screen-sized thumbnail. This avoids
+                    // allocating the full 12 MP bitmap just to show the viewer.
                     let options: [CFString: Any] = [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
                         kCGImageSourceThumbnailMaxPixelSize: 2048,
-                        kCGImageSourceShouldCacheImmediately: true
+                        kCGImageSourceShouldCache: true
                     ]
-                    guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                    if let thumbnail = CGImageSourceCreateThumbnailAtIndex(
                         source, 0, options as CFDictionary
-                    ) else { return nil }
-                    return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
+                    ) {
+                        return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
+                    }
+
+                    // A fallback protects older/oddly-encoded image files from
+                    // leaving the detail viewer stuck on an empty canvas.
+                    if let fallback = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                        return UIImage(cgImage: fallback, scale: 1, orientation: .up)
+                    }
+                    return UIImage(contentsOfFile: fileURL.path)
                 }.value
 
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    image = loadedImage
-                    zoomScale = 1
+                if let loadedImage {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        image = loadedImage
+                        zoomScale = 1
+                        loadFailed = false
+                    }
+                } else {
+                    image = nil
+                    loadFailed = true
                 }
             }
         }
@@ -3538,6 +3561,34 @@ private struct AlbumViewerPage: View {
             player?.pause()
             player = nil
         }
+    }
+
+    private var loadingPlaceholder: some View {
+        VStack(spacing: 12) {
+            if loadFailed {
+                Image(systemName: "photo.badge.exclamationmark")
+                    .font(.system(size: 30, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x8297AE))
+                Text("照片读取失败")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x718096))
+                Button("重新加载") {
+                    reloadToken &+= 1
+                }
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x4F83B6))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white, in: Capsule())
+            } else {
+                ProgressView()
+                    .tint(Color(hex: 0x7C91A8))
+                Text("正在加载照片…")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x8293A5))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
