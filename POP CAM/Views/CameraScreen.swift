@@ -393,6 +393,18 @@ struct CameraScreen: View {
         .onChange(of: camera.captureID) { _, _ in
             showReview = true
         }
+        .onChange(of: showReview) { _, presented in
+            if presented { camera.pauseSessionForOverlay() }
+            else { camera.resumeSessionAfterOverlay() }
+        }
+        .onChange(of: showAlbum) { _, presented in
+            if presented { camera.pauseSessionForOverlay() }
+            else { camera.resumeSessionAfterOverlay() }
+        }
+        .onChange(of: showSettings) { _, presented in
+            if presented { camera.pauseSessionForOverlay() }
+            else { camera.resumeSessionAfterOverlay() }
+        }
         .onChange(of: camera.zoomFactor) { _, value in
             zoom = Double(value)
         }
@@ -3033,7 +3045,7 @@ private struct LocalAlbumDetailView: View {
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(media.enumerated()), id: \.offset) { index, url in
-                    AlbumViewerPage(url: url, isAspectFit: isAspectFit)
+                    AlbumViewerPage(url: url, isAspectFit: isAspectFit, isActive: index == currentIndex)
                         .tag(index)
                         .accessibilityLabel(url.isVideoMedia ? "视频" : "照片")
                 }
@@ -3429,6 +3441,7 @@ private struct LocalAlbumDetailView: View {
 private struct AlbumViewerPage: View {
     let url: URL
     let isAspectFit: Bool
+    let isActive: Bool
 
     @State private var image: UIImage?
     @State private var player: AVPlayer?
@@ -3444,7 +3457,7 @@ private struct AlbumViewerPage: View {
                         .onAppear { player.play() }
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .padding(.horizontal, 8)
-                } else {
+                } else if isActive {
                     ProgressView().tint(Color(hex: 0x7C91A8))
                 }
             } else if let image {
@@ -3472,24 +3485,45 @@ private struct AlbumViewerPage: View {
                         }
                     }
                     .transition(.opacity)
-            } else {
+            } else if isActive {
                 ProgressView().tint(Color(hex: 0x7C91A8))
             }
         }
         .padding(.vertical, 6)
-        .task(id: url) {
-            image = nil
-            if url.isVideoMedia {
+        .task(id: "\(url.path)|\(isActive)") {
+            guard isActive else {
+                image = nil
                 player?.pause()
-                player = AVPlayer(url: url)
-                player?.play()
+                player = nil
+                return
+            }
+
+            if url.isVideoMedia {
+                image = nil
+                player?.pause()
+                let nextPlayer = AVPlayer(url: url)
+                player = nextPlayer
+                nextPlayer.play()
             } else {
+                player?.pause()
+                player = nil
                 let fileURL = url
-                let loadedImage = await Task.detached(priority: .userInitiated) {
-                    UIImage(contentsOfFile: fileURL.path)
+                let loadedImage = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                    guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { return nil }
+                    let options: [CFString: Any] = [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: 2048,
+                        kCGImageSourceShouldCacheImmediately: true
+                    ]
+                    guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                        source, 0, options as CFDictionary
+                    ) else { return nil }
+                    return UIImage(cgImage: thumbnail, scale: 1, orientation: .up)
                 }.value
+
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.22)) {
+                withAnimation(.easeInOut(duration: 0.18)) {
                     image = loadedImage
                     zoomScale = 1
                 }
