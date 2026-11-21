@@ -154,7 +154,7 @@ final class CameraService: ObservableObject {
             self.session.commitConfiguration()
             self.applyPortraitOrientation()
             self.session.startRunning()
-            self.applyStabilizationOnSessionQueue(enabled: UserDefaults.standard.bool(forKey: "popcam.videoStabilizationEnabled"))
+            self.applyStabilizationOnSessionQueue(enabled: self.isVideoStabilizationPreferenceEnabled())
 
             DispatchQueue.main.async {
                 self.isReady = true
@@ -257,6 +257,10 @@ final class CameraService: ObservableObject {
             session.commitConfiguration()
             return oldInput.device
         }
+    }
+
+    private func isVideoStabilizationPreferenceEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: "popcam.videoStabilizationEnabled") as? Bool ?? true
     }
 
     private func applyPortraitOrientation() {
@@ -521,6 +525,9 @@ final class CameraService: ObservableObject {
             configurationError = error
         }
         session.commitConfiguration()
+        // Changing the active sensor format can reset output connection settings.
+        // Reapply the user's crop-based EIS preference after every format switch.
+        applyStabilizationOnSessionQueue(enabled: isVideoStabilizationPreferenceEnabled())
 
         if let configurationError {
             DispatchQueue.main.async {
