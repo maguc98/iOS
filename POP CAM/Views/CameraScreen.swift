@@ -1063,8 +1063,8 @@ struct CameraScreen: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("拍照")
-                    .disabled(camera.isRecording)
+                    .accessibilityLabel(camera.isPhotoCaptureInProgress ? "正在处理照片" : "拍照")
+                    .disabled(camera.isRecording || camera.isPhotoCaptureInProgress || countdown != nil)
                 }
                 .frame(maxWidth: .infinity)
                 .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
@@ -1832,7 +1832,10 @@ struct CameraScreen: View {
     }
 
     private func takePhoto() {
-        guard camera.isReady else { return }
+        guard camera.isReady,
+              !camera.isRecording,
+              !camera.isPhotoCaptureInProgress,
+              countdown == nil else { return }
         guard timerSeconds > 0 else {
             camera.capturePhoto()
             return
