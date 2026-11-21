@@ -17,7 +17,7 @@ struct AutofocusPoint: Identifiable, Equatable {
 }
 
 final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    private let context = CIContext()
+    private let context = CIContext(options: [.cacheIntermediates: false])
     private let lock = NSLock()
     private var activeFilter: CameraFilter = .pop
     private var lastFrameTime: CFTimeInterval = 0
@@ -60,30 +60,33 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         let now = CACurrentMediaTime()
-        guard now - lastFrameTime >= (1.0 / 60.0) else { return }
+        // Publish a processed preview at 30 FPS; capture/recording outputs remain independent.
+        guard now - lastFrameTime >= (1.0 / 30.0) else { return }
         lastFrameTime = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let input = CIImage(cvPixelBuffer: pixelBuffer)
-        let filtered = selectedFilter.apply(to: input).cropped(to: input.extent)
 
-        // Keep the on-screen preview lightweight; the still-photo output stays full resolution.
-        let longestSide = max(filtered.extent.width, filtered.extent.height)
-        let scale = min(1, 1280 / longestSide)
-        let preview = scale < 1
-            ? filtered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            : filtered
+        // Downsample before applying the live filter. The viewfinder is about
+        // 960 physical pixels wide on current iPhones; doing the filter at 4K
+        // wastes CPU and memory without improving what the screen can show.
+        let longestSide = max(input.extent.width, input.extent.height)
+        let scale = min(1, 960 / longestSide)
+        let previewInput = scale < 1
+            ? input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            : input
+        let preview = selectedFilter.apply(to: previewInput).cropped(to: previewInput.extent)
 
         guard let frame = context.createCGImage(preview, from: preview.extent) else { return }
         onFrame?(frame)
 
-        if now - lastMotionAnalysisTime >= 0.12 {
+        if now - lastMotionAnalysisTime >= 0.30 {
             lastMotionAnalysisTime = now
             onVisualMotion?(visualMotionDetector.estimate(in: frame))
         }
 
         if isAutofocusVisualizationEnabled,
-           now - lastAutofocusAnalysisTime >= 0.18 {
+           now - lastAutofocusAnalysisTime >= 0.32 {
             lastAutofocusAnalysisTime = now
             onAutofocusPoints?(autofocusDetector.detect(in: frame))
         }
@@ -93,8 +96,8 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
 /// Estimates dominant frame-to-frame image translation from sampled luminance.
 /// This is visual scene-motion tracking, not a replacement for AVFoundation EIS.
 private final class GlobalMotionDetector {
-    private let width = 80
-    private let height = 100
+    private let width = 64
+    private let height = 80
     private var previous: [UInt8]?
     private var smoothed = VisualMotionEstimate()
 
@@ -115,7 +118,7 @@ private final class GlobalMotionDetector {
         guard rendered else { return smoothed }
         guard let previous else { self.previous = pixels; return VisualMotionEstimate() }
 
-        let radius = 7
+        let radius = 5
         var bestError = Double.greatestFiniteMagnitude
         var secondBest = Double.greatestFiniteMagnitude
         var bestDX = 0
@@ -163,15 +166,15 @@ private final class GlobalMotionDetector {
 /// These are visual focus-area estimates, not hardware PDAF coordinates.
 
 private final class MultiPointAutofocusDetector {
-    private let analysisWidth = 240
-    private let analysisHeight = 320
-    private let columns = 12
-    private let rows = 16
+    private let analysisWidth = 160
+    private let analysisHeight = 224
+    private let columns = 10
+    private let rows = 14
     private let minimumEdgeScore = 0.65
     private let minimumSpacing = 0.105
     private let edgeInsetX = 0.085
     private let edgeInsetY = 0.075
-    private var filteredScores = [Double](repeating: 0, count: 12 * 16)
+    private var filteredScores = [Double](repeating: 0, count: 10 * 14)
     private var previousLocations: [Int: CGPoint] = [:]
 
     func detect(in image: CGImage) -> [AutofocusPoint] {
