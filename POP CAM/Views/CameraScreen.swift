@@ -941,11 +941,11 @@ struct CameraScreen: View {
                                 .exclusively(before: TapGesture())
                                 .onEnded { result in
                                     switch result {
-                                    case .first:
+                                    case .first(_):
                                         withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
                                             showAutofocusCapsule.toggle()
                                         }
-                                    case .second:
+                                    case .second(_):
                                         showAutofocusCapsule = false
                                         triggerAutofocus()
                                     }
