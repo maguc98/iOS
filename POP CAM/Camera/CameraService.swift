@@ -1024,7 +1024,11 @@ final class CameraService: ObservableObject {
 
     func setManualLensPosition(_ value: Float) {
         let position = min(max(value, 0), 1)
-        DispatchQueue.main.async { self.manualLensPosition = position }
+        DispatchQueue.main.async {
+            self.manualLensPosition = position
+            self.confirmedFocusPoint = nil
+            self.focusStatus = .idle
+        }
         sessionQueue.async { [weak self] in
             guard let self,
                   let device = self.activeInput?.device,
