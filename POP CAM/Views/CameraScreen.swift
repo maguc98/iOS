@@ -35,8 +35,8 @@ struct CameraScreen: View {
     @State private var zoomDragStartValue: CGFloat?
     @State private var isZoomDragActive = false
     @State private var exposure: Double = 0
-    @State private var manualFocusIndicatorPoint: CGPoint?
-    @State private var manualFocusIndicatorID = 0
+    @State private var showAutofocusCapsule = false
+    @State private var showAutofocusPanel = false
     @State private var selectedVideoResolution = "4K"
     @State private var selectedFrameRate = "30"
     @State private var hdrEnabled = true
@@ -117,25 +117,6 @@ struct CameraScreen: View {
                             x: min(max(location.x / width, 0), 1),
                             y: min(max(location.y / height, 0), 1)
                         )
-                        if activeTool == .autofocus {
-                            withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
-                                activeTool = .filters
-                                isToolPanelExpanded = false
-                            }
-                            camera.setAutofocusVisualizationEnabled(false)
-                        }
-
-                        manualFocusIndicatorID += 1
-                        let indicatorID = manualFocusIndicatorID
-                        withAnimation(.spring(response: 0.26, dampingFraction: 0.72)) {
-                            manualFocusIndicatorPoint = location
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) {
-                            guard manualFocusIndicatorID == indicatorID else { return }
-                            withAnimation(.easeOut(duration: 0.28)) {
-                                manualFocusIndicatorPoint = nil
-                            }
-                        }
                         camera.focus(at: normalizedPoint)
                     }
 
@@ -155,9 +136,9 @@ struct CameraScreen: View {
                         .allowsHitTesting(false)
                     }
 
-                    if stabilizationHUDEnabled, let frame = camera.previewImage {
+                    if stabilizationHUDEnabled {
                         StabilizationPreviewHUD(
-                            image: frame,
+                            image: camera.previewImage,
                             rollDegrees: levelMonitor.rollDegrees,
                             pitchDegrees: levelMonitor.stabilizationPitchDegrees,
                             yawDegrees: levelMonitor.stabilizationYawDegrees,
@@ -224,23 +205,17 @@ struct CameraScreen: View {
                             .allowsHitTesting(false)
                     }
 
-                    if activeTool == .autofocus && !camera.autofocusPoints.isEmpty {
-                        MultiPointAutofocusOverlay(
-                            points: projectedAutofocusPoints(in: CGSize(width: width, height: height))
-                        )
-                        .frame(width: width, height: height)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
-                    }
-                    if let manualFocusIndicatorPoint {
+                    // Show one marker at the real AF point only after the camera confirms
+                    // that lens movement has settled. Never infer focus from scene texture.
+                    if camera.focusStatus == .focused, let point = camera.confirmedFocusPoint {
                         FocusReticle()
                             .stroke(
-                                Color(hex: 0xFFE45E),
+                                Color(hex: 0x83DFA6),
                                 style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round)
                             )
-                            .frame(width: 58, height: 58)
-                            .position(manualFocusIndicatorPoint)
-                            .transition(.scale(scale: 0.70).combined(with: .opacity))
+                            .frame(width: 44, height: 44)
+                            .position(x: point.x * width, y: point.y * height)
+                            .transition(.scale(scale: 0.78).combined(with: .opacity))
                             .allowsHitTesting(false)
                             .zIndex(13)
                     }
@@ -252,8 +227,6 @@ struct CameraScreen: View {
                                 filterPicker
                             case .superResolution:
                                 superResolutionPicker
-                            case .autofocus:
-                                autofocusPicker
                             }
                         }
                         .frame(width: width - 28, height: 82)
@@ -380,6 +353,13 @@ struct CameraScreen: View {
                 .presentationBackground(Color(hex: 0xF1ECFA))
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showAutofocusPanel) {
+            autofocusSettingsSheet
+                .presentationDetents([.medium])
+                .presentationCornerRadius(24)
+                .presentationBackground(Color(hex: 0xF4F8FC))
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showAlbum) {
             LocalMediaAlbumSheet(
                 media: camera.savedMediaURLs,
@@ -408,12 +388,8 @@ struct CameraScreen: View {
         .onChange(of: camera.zoomFactor) { _, value in
             zoom = Double(value)
         }
-        .onChange(of: activeTool == .autofocus && !camera.isExposureFocusLocked) { _, enabled in
-            camera.setAutofocusVisualizationEnabled(enabled)
-        }
         .onAppear {
             camera.prepare()
-            camera.setAutofocusVisualizationEnabled(activeTool == .autofocus && !camera.isExposureFocusLocked)
             camera.setVideoStabilizationEnabled(videoStabilizationEnabled)
             updateMotionMonitoring()
         }
@@ -487,7 +463,7 @@ struct CameraScreen: View {
         .onChange(of: motionStatusHUDEnabled) { _, _ in
             updateMotionMonitoring()
         }
-        .onDisappear { levelMonitor.stop(); camera.setAutofocusVisualizationEnabled(false) }
+        .onDisappear { levelMonitor.stop() }
         .alert("POP CAM", isPresented: Binding(
             get: { camera.errorMessage != nil },
             set: { if !$0 { camera.errorMessage = nil } }
@@ -607,14 +583,13 @@ struct CameraScreen: View {
                 isToolPanelExpanded.toggle()
             }
         }
-        .accessibilityHint("向上滑依次切换滤镜、AI 超分、自动对焦；向下滑反向切换；轻点展开或收起")
+        .accessibilityHint("轻点展开或收起；上下滑动切换滤镜和 AI 超分")
     }
 
     private var toolTitle: String {
         switch activeTool {
         case .filters: return "滤镜"
         case .superResolution: return "AI 超分"
-        case .autofocus: return "自动对焦"
         }
     }
 
@@ -622,52 +597,21 @@ struct CameraScreen: View {
         switch activeTool {
         case .filters: return "camera.filters"
         case .superResolution: return "sparkles"
-        case .autofocus: return "viewfinder"
         }
     }
 
     private func nextTool(after tool: CameraToolMode) -> CameraToolMode {
         switch tool {
         case .filters: return .superResolution
-        case .superResolution: return .autofocus
-        case .autofocus: return .filters
+        case .superResolution: return .filters
         }
     }
 
     private func previousTool(before tool: CameraToolMode) -> CameraToolMode {
         switch tool {
-        case .filters: return .autofocus
+        case .filters: return .superResolution
         case .superResolution: return .filters
-        case .autofocus: return .superResolution
         }
-    }
-
-    private var autofocusPicker: some View {
-        Button {
-            camera.focus(at: CGPoint(x: 0.5, y: 0.5))
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "viewfinder")
-                    .font(.system(size: 15, weight: .semibold))
-                Text(camera.focusStatus == .focusing ? "正在对焦" :
-                     camera.focusStatus == .focused ? "对焦完成" : "自动对焦")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                Spacer()
-                if camera.focusStatus == .focusing {
-                    ProgressView().tint(Color(hex: 0x32D46A))
-                } else {
-                    Circle()
-                        .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xA5B0BD))
-                        .frame(width: 7, height: 7)
-                }
-            }
-            .foregroundStyle(Color(hex: 0x3D4352))
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 36)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            
-        }
-        .buttonStyle(.plain)
     }
 
     private var filterPicker: some View {
@@ -736,15 +680,6 @@ struct CameraScreen: View {
         .padding(.vertical, 6)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         
-    }
-
-    private var focusStatusTitle: String {
-        switch camera.focusStatus {
-        case .idle: return "自动对焦"
-        case .focusing: return "正在对焦…"
-        case .focused: return "对焦完成"
-        case .unavailable: return "重新尝试对焦"
-        }
     }
 
     private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
@@ -958,25 +893,74 @@ struct CameraScreen: View {
                     }
                     .buttonStyle(.plain)
                     Spacer()
-                    Button(action: triggerAutofocus) {
+                    VStack(spacing: 6) {
+                        if showAutofocusCapsule {
+                            Button {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+                                    showAutofocusCapsule = false
+                                    showAutofocusPanel = true
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "viewfinder")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text("对焦设置")
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 8, weight: .bold))
+                                }
+                                .foregroundStyle(Color(hex: 0x536B83))
+                                .padding(.horizontal, 11)
+                                .frame(height: 28)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.88), lineWidth: 1))
+                                .shadow(color: Color(hex: 0x9FB2C8).opacity(0.16), radius: 10, y: 4)
+                            }
+                            .buttonStyle(.plain)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+
                         ZStack(alignment: .topTrailing) {
                             Circle()
                                 .fill(Color.white)
                                 .frame(width: 48, height: 48)
-                                
                             Image(systemName: "viewfinder")
                                 .font(.system(size: 19, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0x3D4352))
                                 .frame(width: 48, height: 48)
                             Circle()
-                                .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) : Color(hex: 0xAAB3BE))
+                                .fill(camera.focusStatus == .focused ? Color(hex: 0x32D46A) :
+                                      camera.focusStatus == .focusing ? Color(hex: 0xFFE45E) :
+                                      Color(hex: 0xAAB3BE))
                                 .frame(width: 8, height: 8)
-                                
                                 .offset(x: 1, y: -1)
                         }
+                        .contentShape(Circle())
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.45)
+                                .exclusively(before: TapGesture())
+                                .onEnded { result in
+                                    switch result {
+                                    case .first:
+                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+                                            showAutofocusCapsule.toggle()
+                                        }
+                                    case .second:
+                                        showAutofocusCapsule = false
+                                        triggerAutofocus()
+                                    }
+                                }
+                        )
+                        .accessibilityElement()
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("自动对焦")
+                        .accessibilityHint("轻点执行自动对焦，长按打开对焦设置")
+                        .accessibilityAction(.default) {
+                            showAutofocusCapsule = false
+                            triggerAutofocus()
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(activeTool == .autofocus ? "关闭自动对焦" : "开启自动对焦")
+                    .frame(minWidth: 48)
                 }
 
                 HStack(spacing: 26) {
@@ -1704,33 +1688,76 @@ struct CameraScreen: View {
     }
 
     private func triggerAutofocus() {
-        // The shutter-side AF control is an action, not an on/off toggle:
-        // tapping it always initiates a fresh center focus operation.
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
-            activeTool = .autofocus
-            isToolPanelExpanded = false
+        // The shutter-side viewfinder control is the only autofocus button.
+        // A tap requests a real center focus; the marker appears only on success.
+        withAnimation(.easeOut(duration: 0.16)) {
+            showAutofocusCapsule = false
         }
-        camera.setAutofocusVisualizationEnabled(true)
         camera.focus(at: CGPoint(x: 0.5, y: 0.5))
     }
 
-    private func projectedAutofocusPoints(in size: CGSize) -> [AutofocusPoint] {
-        guard let image = camera.previewImage, size.width > 0, size.height > 0 else { return [] }
-        let sourceAspect = CGFloat(image.width) / CGFloat(image.height)
-        let targetAspect = size.width / size.height
-
-        return camera.autofocusPoints.compactMap { point in
-            var projected = point.location
-            if sourceAspect > targetAspect {
-                let visibleWidth = targetAspect / sourceAspect
-                projected.x = (point.location.x - (1 - visibleWidth) / 2) / visibleWidth
-            } else {
-                let visibleHeight = sourceAspect / targetAspect
-                projected.y = (point.location.y - (1 - visibleHeight) / 2) / visibleHeight
+    private var autofocusSettingsSheet: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x58718B))
+                    .frame(width: 40, height: 40)
+                    .background(Color(hex: 0xE8F4FA), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("对焦控制")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Text("管理当前焦点与测光方式")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x8997A8))
+                }
+                Spacer()
             }
-            guard (0...1).contains(projected.x), (0...1).contains(projected.y) else { return nil }
-            return AutofocusPoint(id: point.id, location: projected, strength: point.strength)
+
+            Toggle(isOn: Binding(
+                get: { camera.isExposureFocusLocked },
+                set: { camera.setExposureFocusLocked($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("锁定对焦与曝光")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Text("固定当前焦点和测光；关闭后恢复连续自动对焦")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x8997A8))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(Color(hex: selectedPalette.accent))
+
+            Button {
+                camera.setExposureFocusLocked(false)
+                camera.focus(at: CGPoint(x: 0.5, y: 0.5))
+                showAutofocusPanel = false
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "scope")
+                    Text("立即重新对焦")
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(hex: 0x3D4352))
+                .padding(.horizontal, 15)
+                .frame(height: 46)
+                .background(Color(hex: 0xE8F4FA), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            Text("更多对焦工具可以继续添加在这里。")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(hex: 0xA0ACB9))
+                .frame(maxWidth: .infinity, alignment: .center)
+            Spacer(minLength: 0)
         }
+        .padding(22)
+        .preferredColorScheme(.light)
     }
 
     private func takePhoto() {
@@ -4464,7 +4491,7 @@ private struct HeaderIcon: View {
 }
 
 private struct StabilizationPreviewHUD: View {
-    let image: CGImage
+    let image: CGImage?
     let rollDegrees: Double
     let pitchDegrees: Double
     let yawDegrees: Double
@@ -4488,12 +4515,26 @@ private struct StabilizationPreviewHUD: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
-                    .overlay(Color.black.opacity(0.24))
+                if let image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .overlay(Color.black.opacity(0.24))
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(hex: 0x26384A))
+                        .overlay {
+                            VStack(spacing: 5) {
+                                Image(systemName: "viewfinder")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("等待预览")
+                                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(.white.opacity(0.8))
+                        }
+                }
 
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .stroke(
@@ -4797,7 +4838,6 @@ private struct MacaronPalette: Identifiable {
 private enum CameraToolMode {
     case filters
     case superResolution
-    case autofocus
 }
 
 private enum CaptureBarMode: Equatable {
