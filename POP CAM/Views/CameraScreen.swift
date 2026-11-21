@@ -744,14 +744,28 @@ struct CameraScreen: View {
     }
 
     private var zoomControl: some View {
-        HStack(spacing: 3) {
-            zoomButton(1)
-            zoomButton(2)
-            zoomButton(3)
-            zoomButton(5)
+        Group {
+            if isZoomDragActive {
+                HStack(spacing: 0) {
+                    zoomDragEdge(direction: .left)
+                    Spacer(minLength: 8)
+                    zoomDragEdge(direction: .right)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 46)
+                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+            } else {
+                HStack(spacing: 3) {
+                    zoomButton(1)
+                    zoomButton(2)
+                    zoomButton(3)
+                    zoomButton(5)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 4)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
         }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 4)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay {
             Capsule()
@@ -759,21 +773,22 @@ struct CameraScreen: View {
         }
         .shadow(color: Color(hex: 0xA6B7C9).opacity(0.15), radius: 10, y: 4)
         .contentShape(Capsule())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 8)
-                .onChanged { drag in
+        .gesture(
+            LongPressGesture(minimumDuration: 0.24)
+                .sequenced(before: DragGesture(minimumDistance: 0))
+                .onChanged { value in
+                    guard case .second(true, let drag?) = value else { return }
                     if zoomDragStartValue == nil {
                         zoomDragStartValue = CGFloat(zoom)
                     }
                     if !isZoomDragActive {
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.84)) {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
                             isZoomDragActive = true
                         }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
-                    // Apple-camera-style press and horizontal drag:
-                    // keep proportional (logarithmic) zoom movement while
-                    // allowing quick stops at the 1x / 2x / 3x / 5x presets.
+                    // Hold, then drag horizontally for continuous logarithmic zoom.
                     let startStops = log2(max(1.0, Double(zoomDragStartValue ?? CGFloat(zoom))))
                     let dragStops = Double(drag.translation.width) / 155.0
                     let targetZoom = CGFloat(pow(2.0, startStops + dragStops))
@@ -781,14 +796,41 @@ struct CameraScreen: View {
                 }
                 .onEnded { _ in
                     zoomDragStartValue = nil
-                    withAnimation(.easeOut(duration: 0.20)) {
+                    withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
                         isZoomDragActive = false
                     }
                 }
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("变焦倍率")
-        .accessibilityHint("点按 1 倍、2 倍、3 倍或 5 倍快速切换；左右滑动连续变焦")
+        .accessibilityHint("点按 1 倍、2 倍、3 倍或 5 倍切换；按住后左右拖动连续变焦")
+    }
+
+    private enum ZoomDragDirection {
+        case left
+        case right
+    }
+
+    private func zoomDragEdge(direction: ZoomDragDirection) -> some View {
+        HStack(spacing: 3) {
+            if direction == .left {
+                Image(systemName: "chevron.left")
+            }
+            HStack(spacing: 2) {
+                ForEach(0..<5, id: \\.self) { _ in
+                    Capsule()
+                        .fill(Color(hex: 0x64768A).opacity(0.72))
+                        .frame(width: 1.5, height: 13)
+                }
+            }
+            if direction == .right {
+                Image(systemName: "chevron.right")
+            }
+        }
+        .font(.system(size: 11, weight: .bold))
+        .foregroundStyle(Color(hex: 0x52657A))
+        .frame(minWidth: 25)
+        .accessibilityHidden(true)
     }
 
     private var zoomDragIndicator: some View {
