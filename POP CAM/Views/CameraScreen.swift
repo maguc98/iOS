@@ -3878,8 +3878,14 @@ private struct AlbumPhotoStudioView: View {
     private var savePanel: some View {
         VStack(spacing: 9) {
             Button {
-                let output = displayImage
                 let isAI = showingEnhanced && enhancedImage != nil
+                let output: UIImage
+                if isAI, let enhancedImage {
+                    output = enhancedImage
+                } else {
+                    // Export at full source resolution; the 1200px image is preview-only.
+                    output = renderEditedImage(maxPixelSize: nil)
+                }
                 savedURL = onSaveCopy(output, isAI)
                 showSavedAlert = savedURL != nil
             } label: {
