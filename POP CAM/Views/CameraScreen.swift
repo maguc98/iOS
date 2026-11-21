@@ -66,7 +66,9 @@ struct CameraScreen: View {
             // The surrounding area remains the macaron-colored app canvas.
             GeometryReader { previewGeometry in
                 let width = previewGeometry.size.width * 0.86
-                let height = min(width * 4 / 3, previewGeometry.size.height * 0.60)
+                // The viewfinder's portrait 3:4 geometry is fixed; do not cap
+                // its height independently, or the preview can drift off-ratio.
+                let height = width * 4 / 3
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
                 let centerY = previewGeometry.size.height * 0.482
