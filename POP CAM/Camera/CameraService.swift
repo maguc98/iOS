@@ -383,6 +383,7 @@ final class CameraService: ObservableObject {
             dimensions: CMVideoDimensions,
             range: AVFrameRateRange,
             supportsFPS: Bool,
+            meetsRequestedResolution: Bool,
             supportsHDR: Bool,
             actualFPS: Double,
             frameDuration: CMTime
@@ -390,8 +391,9 @@ final class CameraService: ObservableObject {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             let width = max(dimensions.width, dimensions.height)
             let height = min(dimensions.width, dimensions.height)
-            guard width >= requestedDimensions.width,
-                  height >= requestedDimensions.height else { return nil }
+            let meetsRequestedResolution =
+                width >= requestedDimensions.width &&
+                height >= requestedDimensions.height
 
             let ranges = format.videoSupportedFrameRateRanges
             guard !ranges.isEmpty else { return nil }
@@ -427,6 +429,7 @@ final class CameraService: ObservableObject {
                 dimensions: dimensions,
                 range: selectedRange,
                 supportsFPS: matchingRange != nil,
+                meetsRequestedResolution: meetsRequestedResolution,
                 supportsHDR: format.isVideoHDRSupported,
                 actualFPS: actualFPS,
                 frameDuration: frameDuration
@@ -444,6 +447,12 @@ final class CameraService: ObservableObject {
             if abs(lhsGateError - rhsGateError) > 0.005 {
                 return lhsGateError < rhsGateError
             }
+            // If a 4:3 full-gate mode cannot meet the requested resolution,
+            // retain the aspect ratio and fall back to the highest available 4:3
+            // mode instead of silently switching to cropped 16:9 video.
+            if lhs.meetsRequestedResolution != rhs.meetsRequestedResolution {
+                return lhs.meetsRequestedResolution && !rhs.meetsRequestedResolution
+            }
             if lhs.supportsFPS != rhs.supportsFPS {
                 return lhs.supportsFPS && !rhs.supportsFPS
             }
@@ -457,7 +466,9 @@ final class CameraService: ObservableObject {
             }
             let lhsArea = Int64(lhs.dimensions.width) * Int64(lhs.dimensions.height)
             let rhsArea = Int64(rhs.dimensions.width) * Int64(rhs.dimensions.height)
-            if lhsArea != rhsArea { return lhsArea < rhsArea }
+            if lhsArea != rhsArea {
+                return lhs.meetsRequestedResolution ? lhsArea < rhsArea : lhsArea > rhsArea
+            }
             return lhs.actualFPS > rhs.actualFPS
         }
 
