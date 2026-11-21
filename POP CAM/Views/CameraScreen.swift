@@ -3046,11 +3046,9 @@ private struct LocalAlbumDetailView: View {
             .padding(.bottom, 184)
             .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
             .overlay {
+                // Match the clipped viewport exactly; do not inset the border a second time.
                 RoundedRectangle(cornerRadius: 29, style: .continuous)
                     .stroke(Color.white.opacity(0.72), lineWidth: 1)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 88)
-                    .padding(.bottom, 184)
                     .allowsHitTesting(false)
             }
             .shadow(color: Color(hex: 0x8EA8C2).opacity(0.10), radius: 18, y: 6)
