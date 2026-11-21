@@ -2961,7 +2961,17 @@ private struct LocalAlbumThumbnail: View {
                 }
                 return nil
             }
-            return UIImage(contentsOfFile: fileURL.path)
+            guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 480,
+                kCGImageSourceShouldCache: false
+            ]
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                return nil
+            }
+            return UIImage(cgImage: cgImage)
         }.value
         guard !Task.isCancelled else { return }
         withAnimation(.easeInOut(duration: 0.24)) {
@@ -3071,10 +3081,9 @@ private struct LocalAlbumDetailView: View {
                 .presentationBackground(Color(hex: 0xF4F8FC))
         }
         .sheet(isPresented: $showStudio) {
-            if let image = UIImage(contentsOfFile: currentURL.path), !currentURL.isVideoMedia {
-                AlbumPhotoStudioView(
-                    image: image,
-                    sourceName: currentURL.lastPathComponent,
+            if !currentURL.isVideoMedia {
+                AlbumPhotoStudioLoader(
+                    url: currentURL,
                     startsWithAI: studioStartsWithAI,
                     preferredScale: superResolutionScale,
                     onSaveCopy: { editedImage, isAI in
@@ -3429,6 +3438,50 @@ private struct AlbumViewerPage: View {
     }
 }
 
+private struct AlbumPhotoStudioLoader: View {
+    let url: URL
+    let startsWithAI: Bool
+    let preferredScale: Int
+    let onSaveCopy: (UIImage, Bool) -> URL?
+
+    @State private var image: UIImage?
+    @State private var loadFailed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                AlbumPhotoStudioView(
+                    image: image,
+                    sourceName: url.lastPathComponent,
+                    startsWithAI: startsWithAI,
+                    preferredScale: preferredScale,
+                    onSaveCopy: onSaveCopy
+                )
+            } else {
+                VStack(spacing: 12) {
+                    ProgressView().tint(Color(hex: 0x7C91A8))
+                    Text(loadFailed ? "照片读取失败，请重新打开。" : "正在准备照片…")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x718096))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(hex: 0xF4F8FC))
+            }
+        }
+        .task(id: url) {
+            image = nil
+            loadFailed = false
+            let fileURL = url
+            let loaded = await Task.detached(priority: .userInitiated) {
+                UIImage(contentsOfFile: fileURL.path)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = loaded
+            loadFailed = loaded == nil
+        }
+    }
+}
+
 private struct AlbumPhotoStudioView: View {
     let image: UIImage
     let sourceName: String
@@ -3459,7 +3512,8 @@ private struct AlbumPhotoStudioView: View {
 
     private var displayImage: UIImage {
         if showingEnhanced, let enhancedImage { return enhancedImage }
-        return renderEditedImage()
+        // Keep interactive previews lightweight; full-resolution rendering is reserved for export/AI.
+        return renderEditedImage(maxPixelSize: 1200)
     }
 
     private var canUndo: Bool { !undoStack.isEmpty }
@@ -3869,7 +3923,7 @@ private struct AlbumPhotoStudioView: View {
 
     private func runAIEnhancement() {
         guard !isEnhancing else { return }
-        let input = renderEditedImage()
+        let input = renderEditedImage(maxPixelSize: nil)
         let scale = aiScale
         isEnhancing = true
         enhancementProgress = 0
@@ -3897,7 +3951,7 @@ private struct AlbumPhotoStudioView: View {
         }
     }
 
-    private func renderEditedImage() -> UIImage {
+    private func renderEditedImage(maxPixelSize: CGFloat? = nil) -> UIImage {
         guard var ciImage = CIImage(image: image) else { return image }
 
         if rotationQuarterTurns > 0 {
@@ -3941,8 +3995,17 @@ private struct AlbumPhotoStudioView: View {
             ciImage = sharpenFilter.outputImage ?? ciImage
         }
 
+        if let maxPixelSize {
+            let extent = ciImage.extent
+            let longestSide = max(extent.width, extent.height)
+            if longestSide > maxPixelSize {
+                let factor = maxPixelSize / longestSide
+                ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
+            }
+        }
+
         guard let output = Self.ciContext.createCGImage(ciImage, from: ciImage.extent) else { return image }
-        return UIImage(cgImage: output, scale: image.scale, orientation: .up)
+        return UIImage(cgImage: output, scale: 1, orientation: .up)
     }
 
     private func pushUndo() {
