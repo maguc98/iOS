@@ -296,8 +296,9 @@ final class CameraService: ObservableObject {
         }
     }
 
-    /// Applies AVFoundation's real capture stabilization to both the live
-    /// video-data connection and the recorded movie connection.
+    /// Uses crop-based electronic stabilization on both preview frames and the
+    /// recorded movie. The Open Gate 4:3 sensor mode leaves source margins that
+    /// stabilization can consume without changing the final portrait 3:4 ratio.
     private func applyStabilizationOnSessionQueue(enabled: Bool) {
         let connections = [
             videoOutput.connection(with: .video),
@@ -305,6 +306,8 @@ final class CameraService: ObservableObject {
         ].compactMap { $0 }
         var applied = false
         for connection in connections where connection.isVideoStabilizationSupported {
+            // Standard EIS stabilizes by reducing the field of view. It is the
+            // lower-latency choice for A14 devices and is applied at capture time.
             connection.preferredVideoStabilizationMode = enabled ? .standard : .off
             applied = true
         }
@@ -433,6 +436,18 @@ final class CameraService: ObservableObject {
             let rhsFPSDistance = abs(rhs.actualFPS - requestedFPS)
             if abs(lhsFPSDistance - rhsFPSDistance) > 0.01 {
                 return lhsFPSDistance < rhsFPSDistance
+            }
+            // Open Gate: prefer the sensor's native 4:3 readout (portrait 3:4
+            // after the capture connection rotates it), rather than a smaller
+            // 16:9 mode that has already discarded the top and bottom of the sensor.
+            let lhsShortSide = Double(min(lhs.dimensions.width, lhs.dimensions.height))
+            let lhsLongSide = Double(max(lhs.dimensions.width, lhs.dimensions.height))
+            let rhsShortSide = Double(min(rhs.dimensions.width, rhs.dimensions.height))
+            let rhsLongSide = Double(max(rhs.dimensions.width, rhs.dimensions.height))
+            let lhsGateError = abs(lhsShortSide / max(lhsLongSide, 1) - 0.75)
+            let rhsGateError = abs(rhsShortSide / max(rhsLongSide, 1) - 0.75)
+            if abs(lhsGateError - rhsGateError) > 0.005 {
+                return lhsGateError < rhsGateError
             }
             if lhs.supportsHDR != rhs.supportsHDR {
                 return hdrEnabled ? lhs.supportsHDR : !lhs.supportsHDR
@@ -745,6 +760,49 @@ final class CameraService: ObservableObject {
         }
     }
 
+    /// Crops every still to the same centered portrait 3:4 frame used by the
+    /// live viewfinder. The crop is applied after EXIF orientation is normalized,
+    /// so portrait shots from the landscape sensor are not accidentally rotated.
+    private func cropPhotoToThreeFour(_ image: UIImage) -> UIImage {
+        guard let source = image.cgImage else { return image }
+
+        let exifOrientation: Int32
+        switch image.imageOrientation {
+        case .up: exifOrientation = 1
+        case .upMirrored: exifOrientation = 2
+        case .down: exifOrientation = 3
+        case .downMirrored: exifOrientation = 4
+        case .leftMirrored: exifOrientation = 5
+        case .right: exifOrientation = 6
+        case .rightMirrored: exifOrientation = 7
+        case .left: exifOrientation = 8
+        @unknown default: exifOrientation = 1
+        }
+
+        let oriented = CIImage(cgImage: source).oriented(forExifOrientation: exifOrientation)
+        let extent = oriented.extent
+        let maximumWidth = min(extent.width, extent.height * 0.75)
+        // Keep integer output dimensions divisible by 3:4 to guarantee the ratio.
+        let outputWidth = floor(maximumWidth / 3) * 3
+        let outputHeight = outputWidth * 4 / 3
+        guard outputWidth >= 3, outputHeight >= 4 else { return image }
+
+        let cropRect = CGRect(
+            x: floor(extent.midX - outputWidth / 2),
+            y: floor(extent.midY - outputHeight / 2),
+            width: outputWidth,
+            height: outputHeight
+        )
+        let cropped = oriented
+            .cropped(to: cropRect)
+            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+        let outputRect = CGRect(origin: .zero, size: cropRect.size)
+        guard let cgImage = CIContext().createCGImage(cropped, from: outputRect) else {
+            return image
+        }
+        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+    }
+
     func capturePhoto() {
         guard isReady else { return }
         let settings = AVCapturePhotoSettings()
@@ -758,7 +816,8 @@ final class CameraService: ObservableObject {
                     self?.errorMessage = "拍摄失败，请再试一次。"
                     return
                 }
-                self.capturedImage = self.selectedFilter.apply(to: image)
+                let threeFourImage = self.cropPhotoToThreeFour(image)
+                self.capturedImage = self.selectedFilter.apply(to: threeFourImage)
                 self.captureID += 1
             }
         }
