@@ -3024,7 +3024,12 @@ private struct LocalAlbumDetailView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0xF4F8FC).ignoresSafeArea()
+            LinearGradient(
+                colors: [Color(hex: 0xF4F8FC), Color(hex: 0xEAF1F8)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(media.enumerated()), id: \.offset) { index, url in
@@ -3034,21 +3039,23 @@ private struct LocalAlbumDetailView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .padding(.top, controlsVisible ? 0 : -2)
 
-            VStack(spacing: 0) {
+            VStack(spacing: 12) {
                 if controlsVisible {
                     viewerHeader
                         .transition(.move(edge: .top).combined(with: .opacity))
-                }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                if controlsVisible {
                     viewerFooter
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    Spacer(minLength: 0)
                 }
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 7)
             .animation(.spring(response: 0.42, dampingFraction: 0.86), value: controlsVisible)
 
             if favoritePulse {
@@ -3059,9 +3066,10 @@ private struct LocalAlbumDetailView: View {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 23, weight: .bold))
                             .foregroundStyle(Color(hex: 0xF18B9D))
-                            .padding(16)
-                            .background(Color.white, in: Circle())
-                            .shadow(color: Color(hex: 0xF18B9D).opacity(0.18), radius: 16, y: 6)
+                            .padding(17)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 1))
+                            .shadow(color: Color(hex: 0xF18B9D).opacity(0.2), radius: 16, y: 6)
                             .scaleEffect(favoritePulse ? 1 : 0.35)
                             .rotationEffect(.degrees(favoritePulse ? 0 : -24))
                         Spacer()
@@ -3105,30 +3113,41 @@ private struct LocalAlbumDetailView: View {
         }
     }
 
+    // A single floating glass header replaces the old system-like row of white buttons.
     private var viewerHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button {
                 dismiss()
             } label: {
-                viewerCircleButton(symbol: "chevron.left")
+                viewerIcon(symbol: "chevron.left", size: 17)
             }
             .buttonStyle(POPPressableStyle())
+            .accessibilityLabel("返回相册")
 
-            Spacer(minLength: 0)
-
-            VStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(Self.relativeDateText(currentDate))
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: 0x354255))
-                Text(Self.timeText(currentDate))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(Color(hex: 0x7D8B9C))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(Self.timeText(currentDate))
+                    Circle()
+                        .fill(Color(hex: 0x91A5BA))
+                        .frame(width: 3, height: 3)
+                    Text(currentURL.isVideoMedia ? "视频" : "照片")
+                }
+                .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color(hex: 0x8292A4))
             }
-            .frame(maxWidth: 170)
-            .frame(height: 48)
-            .background(Color.white, in: Capsule())
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
+
+            Text(String(format: "%02d / %02d", currentIndex + 1, max(media.count, 1)))
+                .font(.system(size: 10, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color(hex: 0x60758D))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.white.opacity(0.58), in: Capsule())
 
             Menu {
                 Button {
@@ -3158,95 +3177,119 @@ private struct LocalAlbumDetailView: View {
                         Label("AI 超分增强", systemImage: "sparkles")
                     }
                 }
+                Divider()
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("删除媒体", systemImage: "trash")
+                }
             } label: {
-                viewerCircleButton(symbol: "ellipsis")
+                viewerIcon(symbol: "ellipsis", size: 17)
             }
+            .buttonStyle(POPPressableStyle())
+            .accessibilityLabel("更多选项")
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 9)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .frame(minHeight: 66)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.76), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0x9FB2C8).opacity(0.12), radius: 18, y: 7)
     }
 
+    // Thumbnails and actions share one visual surface, so the footer feels like one designed control.
     private var viewerFooter: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            HStack {
+                Text("最近照片")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x63778E))
+                Spacer()
+                Text("左右滑动切换")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x9AA9B8))
+            }
+            .padding(.horizontal, 3)
+
             thumbnailStrip
 
-            HStack(spacing: 9) {
+            Rectangle()
+                .fill(Color(hex: 0xD9E3ED).opacity(0.72))
+                .frame(height: 1)
+                .padding(.horizontal, 2)
+
+            HStack(spacing: 2) {
                 ShareLink(item: currentURL) {
-                    viewerCircleButton(symbol: "square.and.arrow.up")
+                    viewerAction(symbol: "square.and.arrow.up", title: "分享", tint: Color(hex: 0x58718B))
                 }
                 .buttonStyle(POPPressableStyle())
 
-                HStack(spacing: 0) {
-                    Button {
-                        toggleFavorite()
-                    } label: {
-                        Image(systemName: isFavorite ? "heart.fill" : "heart")
-                            .foregroundStyle(isFavorite ? Color(hex: 0xF18B9D) : Color(hex: 0x52647A))
-                            .symbolEffect(.bounce, value: isFavorite)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                    }
-                    .buttonStyle(POPPressableStyle())
-                    .accessibilityLabel(isFavorite ? "取消收藏" : "收藏")
-
-                    Button {
-                        showInfo = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(Color(hex: 0x52647A))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                    }
-                    .buttonStyle(POPPressableStyle())
-                    .accessibilityLabel("照片信息")
-
-                    Button {
-                        openStudio(startAI: false)
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundStyle(Color(hex: 0x52647A))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                    }
-                    .buttonStyle(POPPressableStyle())
-                    .disabled(currentURL.isVideoMedia)
-                    .opacity(currentURL.isVideoMedia ? 0.38 : 1)
-                    .accessibilityLabel("编辑照片")
-
-                    Button {
-                        openStudio(startAI: true)
-                    } label: {
-                        Image(systemName: "sparkles")
-                            .foregroundStyle(Color(hex: 0x8F79C7))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                    }
-                    .buttonStyle(POPPressableStyle())
-                    .disabled(currentURL.isVideoMedia)
-                    .opacity(currentURL.isVideoMedia ? 0.38 : 1)
-                    .accessibilityLabel("AI 超分增强")
+                Button {
+                    toggleFavorite()
+                } label: {
+                    viewerAction(
+                        symbol: isFavorite ? "heart.fill" : "heart",
+                        title: isFavorite ? "已收藏" : "收藏",
+                        tint: isFavorite ? Color(hex: 0xE9859C) : Color(hex: 0x58718B)
+                    )
                 }
-                .font(.system(size: 19, weight: .semibold))
-                .frame(width: 220)
-                .background(Color.white, in: Capsule())
+                .buttonStyle(POPPressableStyle())
+                .accessibilityLabel(isFavorite ? "取消收藏" : "收藏")
+
+                Button {
+                    showInfo = true
+                } label: {
+                    viewerAction(symbol: "info.circle", title: "信息", tint: Color(hex: 0x58718B))
+                }
+                .buttonStyle(POPPressableStyle())
+
+                Button {
+                    openStudio(startAI: false)
+                } label: {
+                    viewerAction(symbol: "slider.horizontal.3", title: "编辑", tint: Color(hex: 0x58718B))
+                }
+                .buttonStyle(POPPressableStyle())
+                .disabled(currentURL.isVideoMedia)
+                .opacity(currentURL.isVideoMedia ? 0.35 : 1)
+                .accessibilityLabel("编辑照片")
+
+                Button {
+                    openStudio(startAI: true)
+                } label: {
+                    viewerAction(symbol: "sparkles", title: "AI 增强", tint: Color(hex: 0x947DD0))
+                }
+                .buttonStyle(POPPressableStyle())
+                .disabled(currentURL.isVideoMedia)
+                .opacity(currentURL.isVideoMedia ? 0.35 : 1)
+                .accessibilityLabel("AI 超分增强")
 
                 Button {
                     showDeleteConfirmation = true
                 } label: {
-                    viewerCircleButton(symbol: "trash", tint: Color(hex: 0xD97D83), fill: 0xFCEBF1)
+                    viewerAction(symbol: "trash", title: "删除", tint: Color(hex: 0xD77F8C))
                 }
                 .buttonStyle(POPPressableStyle())
                 .accessibilityLabel("删除照片")
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
         }
+        .padding(.horizontal, 13)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 25, style: .continuous)
+                .stroke(Color.white.opacity(0.78), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0x9FB2C8).opacity(0.15), radius: 20, y: 8)
     }
 
     private var thumbnailStrip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 9) {
                     ForEach(Array(media.enumerated()), id: \.offset) { index, url in
                         Button {
                             withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
@@ -3255,24 +3298,24 @@ private struct LocalAlbumDetailView: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                         } label: {
                             LocalAlbumThumbnail(url: url)
-                                .frame(width: 50, height: 50)
-                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                .frame(width: 48, height: 48)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                                         .stroke(
-                                            currentIndex == index ? Color(hex: 0x7FB9E8) : Color.white,
+                                            currentIndex == index ? Color(hex: 0x78B6E8) : Color.white.opacity(0.85),
                                             lineWidth: currentIndex == index ? 2.5 : 1
                                         )
                                 }
-                                .scaleEffect(currentIndex == index ? 1 : 0.92)
-                                .opacity(currentIndex == index ? 1 : 0.68)
+                                .scaleEffect(currentIndex == index ? 1 : 0.94)
+                                .opacity(currentIndex == index ? 1 : 0.72)
                         }
                         .buttonStyle(POPPressableStyle())
                         .id(index)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 3)
             }
             .onChange(of: currentIndex) { _, newValue in
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
@@ -3280,20 +3323,33 @@ private struct LocalAlbumDetailView: View {
                 }
             }
         }
-        .frame(height: 62)
+        .frame(height: 54)
     }
 
-    private func viewerCircleButton(
-        symbol: String,
-        tint: Color = Color(hex: 0x52647A),
-        fill: UInt32 = 0xFFFFFF
-    ) -> some View {
+    private func viewerIcon(symbol: String, size: CGFloat) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 48, height: 48)
-            .background(Color(hex: fill), in: Circle())
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x536B83))
+            .frame(width: 42, height: 42)
+            .background(Color.white.opacity(0.62), in: Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.7), lineWidth: 0.8))
             .contentShape(Circle())
+    }
+
+    private func viewerAction(symbol: String, title: String, tint: Color) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(height: 19)
+            Text(title)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(tint)
+        .frame(maxWidth: .infinity)
+        .frame(height: 43)
+        .contentShape(Rectangle())
     }
 
     private func toggleFavorite() {
