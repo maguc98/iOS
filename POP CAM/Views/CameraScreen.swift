@@ -3615,7 +3615,7 @@ private struct AlbumViewerPage: View {
                 if let player {
                     VideoPlayer(player: player)
                         .onAppear { player.play() }
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .padding(.horizontal, 8)
                 } else if isActive {
                     loadingPlaceholder
@@ -3628,7 +3628,10 @@ private struct AlbumViewerPage: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .scaleEffect(zoomScale)
                         .clipped()
-                        .contentShape(Rectangle())
+                        // Clip the media itself: clipping only the outer TabView
+                        // does not round the photo's own four corners.
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .gesture(
                             MagnificationGesture()
                                 .onChanged { value in
