@@ -3602,12 +3602,13 @@ private struct AlbumZoomRoundedClip: Shape {
     let isZoomed: Bool
 
     func path(in rect: CGRect) -> Path {
-        let size = isZoomed ? viewportSize : mediaSize
+        // The viewport is a fixed viewing window. Never expand its mask to
+        // the full screen when zooming; only the image content scales behind it.
         let bounds = CGRect(
-            x: (rect.width - size.width) / 2,
-            y: (rect.height - size.height) / 2,
-            width: size.width,
-            height: size.height
+            x: (rect.width - mediaSize.width) / 2,
+            y: (rect.height - mediaSize.height) / 2,
+            width: mediaSize.width,
+            height: mediaSize.height
         )
         return Path(roundedRect: bounds, cornerSize: CGSize(width: 22, height: 22), style: .continuous)
     }
