@@ -1126,19 +1126,7 @@ struct CameraScreen: View {
             .disabled(camera.isRecording || camera.isVideoConfigurationInProgress)
 
             Menu {
-                Button("60 FPS") {
-                    isSyncingVideoControls = true
-                    selectedFrameRate = "60"
-                    hdrEnabled = false
-                    DispatchQueue.main.async {
-                        isSyncingVideoControls = false
-                        camera.configureVideo(
-                            resolution: selectedVideoResolution,
-                            frameRate: 60,
-                            hdrEnabled: false
-                        )
-                    }
-                }
+                Button("4K 24 FPS") { selectedFrameRate = "24" }
                 Button("30 FPS") { selectedFrameRate = "30" }
             } label: {
                 HStack(spacing: 4) {
