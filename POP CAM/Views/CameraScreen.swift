@@ -6,6 +6,13 @@ import ImageIO
 import SwiftUI
 import UIKit
 
+private enum ColorAdjustmentSelection: Equatable {
+    case pad
+    case hue
+    case color
+    case palette
+}
+
 struct CameraScreen: View {
     @StateObject private var camera = CameraService()
     @AppStorage("popcam.macaronPalette") private var selectedPaletteID = "sakura"
@@ -17,6 +24,7 @@ struct CameraScreen: View {
     @State private var showSettings = false
     @State private var activeTool: CameraToolMode = .filters
     @State private var isToolPanelExpanded = false
+    @State private var selectedColorAdjustment: ColorAdjustmentSelection = .pad
     @AppStorage("popcam.superResolutionEnabled") private var superResolutionEnabled = false
     @AppStorage("popcam.superResolutionScale") private var superResolutionScale = 2
     @AppStorage("popcam.videoStabilizationEnabled") private var videoStabilizationEnabled = true
@@ -247,8 +255,25 @@ struct CameraScreen: View {
                         }
                         .frame(width: width - 28, height: activeTool == .colorAdjustments ? 190 : 82)
                         .padding(5)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        .background(
+                            activeTool == .colorAdjustments
+                                ? Color.black.opacity(0.88)
+                                : Color.white,
+                            in: RoundedRectangle(
+                                cornerRadius: activeTool == .colorAdjustments ? 22 : 12,
+                                style: .continuous
+                            )
+                        )
+                        .overlay {
+                            if activeTool == .colorAdjustments {
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                            }
+                        }
+                        .clipShape(RoundedRectangle(
+                            cornerRadius: activeTool == .colorAdjustments ? 22 : cornerRadius,
+                            style: .continuous
+                        ))
                         .position(x: width / 2, y: height - (activeTool == .colorAdjustments ? 112 : 55))
                         .transition(
                             .asymmetric(
@@ -688,61 +713,114 @@ struct CameraScreen: View {
     }
 
     private var colorAdjustmentPicker: some View {
-        VStack(spacing: 5) {
-            HStack(spacing: 6) {
-                Label("调色盘", systemImage: "slider.horizontal.3")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: 0x3D4352))
-                Spacer()
-                Button("重置") { camera.colorAdjustments = .neutral }
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color(hex: selectedPalette.accent))
+        VStack(spacing: 8) {
+            HStack(spacing: 7) {
+                colorAdjustmentValueButton("色调", value: camera.colorAdjustments.hue, control: .hue)
+                colorAdjustmentValueButton("颜色", value: camera.colorAdjustments.color, control: .color)
+                colorAdjustmentValueButton("调色板", value: camera.colorAdjustments.palette, control: .palette)
+                Spacer(minLength: 0)
                 Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isToolPanelExpanded = false
+                    camera.colorAdjustments = .neutral
+                    withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
+                        selectedColorAdjustment = .pad
                     }
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                 } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x596171))
-                        .frame(width: 22, height: 22)
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .frame(width: 25, height: 25)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("重置调色")
             }
-            HStack(spacing: 10) {
-                adjustmentSlider("曝光", value: $camera.colorAdjustments.exposure, range: -2...2)
-                adjustmentSlider("色温", value: $camera.colorAdjustments.temperature, range: -100...100)
+            .padding(.horizontal, 9)
+            .frame(height: 29)
+            .background(Color.white.opacity(0.11), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.7))
+
+            if selectedColorAdjustment == .pad {
+                ColorGradingPad(
+                    hue: $camera.colorAdjustments.hue,
+                    color: $camera.colorAdjustments.color
+                )
+                .frame(width: 126, height: 126)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else {
+                VStack(spacing: 9) {
+                    Text("\(Int(selectedColorAdjustmentValue.rounded()))")
+                        .font(.system(size: 37, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                    ColorAdjustmentRuler(
+                        value: selectedColorAdjustmentBinding,
+                        range: selectedColorAdjustmentRange
+                    )
+                    .frame(height: 30)
+                    .padding(.horizontal, 5)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 126)
+                .transition(.opacity)
             }
-            HStack(spacing: 10) {
-                adjustmentSlider("色调", value: $camera.colorAdjustments.tint, range: -100...100)
-                adjustmentSlider("饱和度", value: $camera.colorAdjustments.saturation, range: 0...2)
-            }
-            HStack(spacing: 10) {
-                adjustmentSlider("对比度", value: $camera.colorAdjustments.contrast, range: 0.5...1.5)
-                adjustmentSlider("高光", value: $camera.colorAdjustments.highlights, range: -1...1)
-            }
-            adjustmentSlider("阴影", value: $camera.colorAdjustments.shadows, range: -1...1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 5)
+        .padding(.vertical, 5)
+        .animation(.spring(response: 0.30, dampingFraction: 0.86), value: selectedColorAdjustment)
     }
 
-    private func adjustmentSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(title).font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x596171))
-                Spacer(minLength: 2)
-                Text(value.wrappedValue.formatted(.number.precision(.fractionLength(1))))
-                    .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
-                    .foregroundStyle(Color(hex: 0x3D4352))
+    private func colorAdjustmentValueButton(
+        _ title: String,
+        value: Double,
+        control: ColorAdjustmentSelection
+    ) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
+                selectedColorAdjustment = selectedColorAdjustment == control ? .pad : control
             }
-            Slider(value: value, in: range)
-                .tint(Color(hex: selectedPalette.accent))
-                .controlSize(.mini)
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            HStack(spacing: 3) {
+                Text(title)
+                    .foregroundStyle(Color.white.opacity(0.68))
+                Text("\(Int(value.rounded()))")
+                    .foregroundStyle(Color.white)
+                    .monospacedDigit()
+            }
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .fixedSize()
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) \(Int(value.rounded()))")
+        .accessibilityHint("再次点按返回点阵调色区")
+    }
+
+    private var selectedColorAdjustmentValue: Double {
+        switch selectedColorAdjustment {
+        case .pad: return 0
+        case .hue: return camera.colorAdjustments.hue
+        case .color: return camera.colorAdjustments.color
+        case .palette: return camera.colorAdjustments.palette
+        }
+    }
+
+    private var selectedColorAdjustmentRange: ClosedRange<Double> {
+        switch selectedColorAdjustment {
+        case .pad, .hue, .color: return -100...100
+        case .palette: return 0...100
+        }
+    }
+
+    private var selectedColorAdjustmentBinding: Binding<Double> {
+        switch selectedColorAdjustment {
+        case .pad, .palette: return $camera.colorAdjustments.palette
+        case .hue: return $camera.colorAdjustments.hue
+        case .color: return $camera.colorAdjustments.color
+        }
     }
 
     private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
@@ -5115,3 +5193,140 @@ private enum CaptureBarMode: Equatable {
     case grid
     case level
 }
+
+/// Compact two-axis dot-matrix control inspired by the supplied iOS Photos recording.
+private struct ColorGradingPad: View {
+    @Binding var hue: Double
+    @Binding var color: Double
+
+    private let inset: CGFloat = 14
+    private let dotCount = 9
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let normalizedX = CGFloat((min(max(color, -100), 100) + 100) / 200)
+            let normalizedY = CGFloat((100 - min(max(hue, -100), 100)) / 200)
+            let point = CGPoint(
+                x: inset + normalizedX * max(0, size.width - inset * 2),
+                y: inset + normalizedY * max(0, size.height - inset * 2)
+            )
+            let activeColumn = Int((normalizedX * CGFloat(dotCount - 1)).rounded())
+            let activeRow = Int((normalizedY * CGFloat(dotCount - 1)).rounded())
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.30, green: 0.30, blue: 0.33),
+                                Color(red: 0.12, green: 0.12, blue: 0.14),
+                                Color(red: 0.07, green: 0.07, blue: 0.09)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Canvas { context, canvasSize in
+                    let stepX = (canvasSize.width - inset * 2) / CGFloat(dotCount - 1)
+                    let stepY = (canvasSize.height - inset * 2) / CGFloat(dotCount - 1)
+                    for row in 0..<dotCount {
+                        for column in 0..<dotCount {
+                            let onAxis = row == activeRow || column == activeColumn
+                            let isActive = row == activeRow && column == activeColumn
+                            let diameter: CGFloat = isActive ? 5.0 : 4.0
+                            let x = inset + CGFloat(column) * stepX
+                            let y = inset + CGFloat(row) * stepY
+                            let dot = CGRect(
+                                x: x - diameter / 2,
+                                y: y - diameter / 2,
+                                width: diameter,
+                                height: diameter
+                            )
+                            let opacity = isActive ? 0.96 : (onAxis ? 0.67 : 0.29)
+                            context.fill(
+                                Path(ellipseIn: dot),
+                                with: .color(Color.white.opacity(opacity))
+                            )
+                        }
+                    }
+                }
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 21, height: 21)
+                    .overlay(Circle().stroke(Color.white.opacity(0.96), lineWidth: 0.8))
+                    .shadow(color: Color.white.opacity(0.44), radius: 8)
+                    .shadow(color: Color.black.opacity(0.58), radius: 5, y: 3)
+                    .position(point)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(Color.white.opacity(0.17), lineWidth: 0.8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let x = min(max((gesture.location.x - inset) / max(1, size.width - inset * 2), 0), 1)
+                        let y = min(max((gesture.location.y - inset) / max(1, size.height - inset * 2), 0), 1)
+                        color = Double(x) * 200 - 100
+                        hue = 100 - Double(y) * 200
+                    }
+            )
+        }
+        .accessibilityElement()
+        .accessibilityLabel("二维调色区")
+        .accessibilityValue("色调 \(Int(hue.rounded()))，颜色 \(Int(color.rounded()))")
+        .accessibilityHint("上下拖动调整色调，左右拖动调整颜色强度")
+    }
+}
+
+/// Fine ruler shown after selecting one of the three numeric controls.
+private struct ColorAdjustmentRuler: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    private let tickCount = 41
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+            let progress = min(max((value - range.lowerBound) / (range.upperBound - range.lowerBound), 0), 1)
+            let markerX = CGFloat(progress) * width
+
+            ZStack {
+                ForEach(0..<tickCount, id: \.self) { index in
+                    let isMajor = index.isMultiple(of: 5)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.white.opacity(isMajor ? 0.72 : 0.38))
+                        .frame(width: 2, height: isMajor ? 20 : 11)
+                        .position(
+                            x: CGFloat(index) / CGFloat(tickCount - 1) * width,
+                            y: geometry.size.height / 2
+                        )
+                }
+
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color(red: 1, green: 0.86, blue: 0.28))
+                    .frame(width: 2.5, height: 27)
+                    .position(x: markerX, y: geometry.size.height / 2)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let fraction = min(max(gesture.location.x / width, 0), 1)
+                        value = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
+                    }
+            )
+        }
+        .accessibilityElement()
+        .accessibilityLabel("精细调节刻度")
+        .accessibilityValue("\(Int(value.rounded()))")
+        .accessibilityHint("左右拖动调整数值")
+    }
+}
+
