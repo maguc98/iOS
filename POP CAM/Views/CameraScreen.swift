@@ -3622,6 +3622,8 @@ private struct AlbumViewerPage: View {
     @State private var image: UIImage?
     @State private var player: AVPlayer?
     @State private var zoomScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var dragStartOffset: CGSize = .zero
     @State private var loadFailed = false
     @State private var reloadToken = 0
 
@@ -3664,20 +3666,60 @@ private struct AlbumViewerPage: View {
                             // so zooming can never push square image corners
                             // beyond the visible rounded boundary.
                             .scaleEffect(zoomScale)
-                            .gesture(
+                            .offset(panOffset)
+                            .simultaneousGesture(
                                 MagnificationGesture()
                                     .onChanged { value in
                                         zoomScale = min(max(value, 1), 5)
+                                        panOffset = clampedPan(
+                                            panOffset,
+                                            scale: zoomScale,
+                                            mediaSize: mediaSize
+                                        )
                                     }
                                     .onEnded { _ in
                                         withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                                            if zoomScale < 1.05 { zoomScale = 1 }
+                                            if zoomScale < 1.05 {
+                                                zoomScale = 1
+                                                panOffset = .zero
+                                            } else {
+                                                panOffset = clampedPan(
+                                                    panOffset,
+                                                    scale: zoomScale,
+                                                    mediaSize: mediaSize
+                                                )
+                                            }
                                         }
+                                    }
+                            )
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 3)
+                                    .onChanged { value in
+                                        guard zoomScale > 1.02 else { return }
+                                        panOffset = clampedPan(
+                                            CGSize(
+                                                width: dragStartOffset.width + value.translation.width,
+                                                height: dragStartOffset.height + value.translation.height
+                                            ),
+                                            scale: zoomScale,
+                                            mediaSize: mediaSize
+                                        )
+                                    }
+                                    .onEnded { _ in
+                                        dragStartOffset = panOffset
                                     }
                             )
                             .onTapGesture(count: 2) {
                                 withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
-                                    zoomScale = zoomScale > 1.1 ? 1 : 2
+                                    if zoomScale > 1.1 {
+                                        zoomScale = 1
+                                        panOffset = .zero
+                                        dragStartOffset = .zero
+                                    } else {
+                                        zoomScale = 2
+                                        panOffset = .zero
+                                        dragStartOffset = .zero
+                                    }
                                 }
                             }
                             .transition(.opacity)
@@ -3729,6 +3771,8 @@ private struct AlbumViewerPage: View {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         image = loadedImage
                         zoomScale = 1
+                        panOffset = .zero
+                        dragStartOffset = .zero
                         loadFailed = false
                     }
                 } else {
@@ -3740,12 +3784,23 @@ private struct AlbumViewerPage: View {
         .onChange(of: isAspectFit) { _, _ in
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 zoomScale = 1
+                panOffset = .zero
+                dragStartOffset = .zero
             }
         }
         .onDisappear {
             player?.pause()
             player = nil
         }
+    }
+
+    private func clampedPan(_ proposed: CGSize, scale: CGFloat, mediaSize: CGSize) -> CGSize {
+        let maxX = max(0, mediaSize.width * (scale - 1) / 2)
+        let maxY = max(0, mediaSize.height * (scale - 1) / 2)
+        return CGSize(
+            width: min(max(proposed.width, -maxX), maxX),
+            height: min(max(proposed.height, -maxY), maxY)
+        )
     }
 
     private var loadingPlaceholder: some View {
