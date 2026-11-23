@@ -3,6 +3,13 @@ import CoreImage.CIFilterBuiltins
 import UIKit
 
 struct CameraColorAdjustments: Equatable {
+    // The two axes of the reference-style color pad.
+    // Hue is vertical (-100...100); color intensity is horizontal (-100...100).
+    var hue: Double = 0
+    var color: Double = 0
+    var palette: Double = 100
+
+    // Keep the original controls for compatibility with existing capture processing.
     var exposure: Double = 0
     var temperature: Double = 0
     var tint: Double = 0
@@ -15,6 +22,33 @@ struct CameraColorAdjustments: Equatable {
 
     func apply(to input: CIImage) -> CIImage {
         var image = input
+
+        // Hue and color are the two axes of the dotted pad.
+        let hueFilter = CIFilter.hueAdjust()
+        hueFilter.inputImage = image
+        hueFilter.angle = Float(hue / 100.0 * Double.pi)
+        let hueAdjusted = hueFilter.outputImage ?? image
+
+        let colorFilter = CIFilter.colorControls()
+        colorFilter.inputImage = hueAdjusted
+        colorFilter.saturation = Float(max(0, min(2, 1 + color / 100.0)))
+        let colorAdjusted = colorFilter.outputImage ?? hueAdjusted
+
+        // Palette strength controls how much of the pad's grading is mixed in.
+        let paletteStrength = CGFloat(max(0, min(100, palette)) / 100.0)
+        if paletteStrength < 0.999 {
+            let mask = CIImage(
+                color: CIColor(red: 1, green: 1, blue: 1, alpha: paletteStrength)
+            ).cropped(to: input.extent)
+            let blend = CIFilter.blendWithAlphaMask()
+            blend.inputImage = colorAdjusted
+            blend.backgroundImage = image
+            blend.maskImage = mask
+            image = blend.outputImage ?? colorAdjusted
+        } else {
+            image = colorAdjusted
+        }
+
         let exposureFilter = CIFilter.exposureAdjust()
         exposureFilter.inputImage = image
         exposureFilter.ev = Float(exposure)
