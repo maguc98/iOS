@@ -3596,6 +3596,23 @@ private struct LocalAlbumDetailView: View {
     }
 }
 
+private struct AlbumZoomRoundedClip: Shape {
+    let viewportSize: CGSize
+    let mediaSize: CGSize
+    let isZoomed: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let size = isZoomed ? viewportSize : mediaSize
+        let bounds = CGRect(
+            x: (rect.width - size.width) / 2,
+            y: (rect.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
+        return Path(roundedRect: bounds, cornerSize: CGSize(width: 22, height: 22), style: .continuous)
+    }
+}
+
 private struct AlbumViewerPage: View {
     let url: URL
     let isAspectFit: Bool
@@ -3641,13 +3658,10 @@ private struct AlbumViewerPage: View {
                             .resizable()
                             .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
                             .frame(width: mediaSize.width, height: mediaSize.height)
-                            .clipped()
-                            // Round the actual rendered image bounds, not the
-                            // full GeometryReader viewport. This keeps the R
-                            // corners visible for portrait, landscape and square
-                            // images even when aspect-fit leaves empty space.
-                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            // Scale the media first. The parent viewport below
+                            // applies the final rounded mask after magnification,
+                            // so zooming can never push square image corners
+                            // beyond the visible rounded boundary.
                             .scaleEffect(zoomScale)
                             .gesture(
                                 MagnificationGesture()
@@ -3668,7 +3682,16 @@ private struct AlbumViewerPage: View {
                             .transition(.opacity)
                     }
                     .frame(width: viewport.width, height: viewport.height)
-                    .clipped()
+                    .clipShape(AlbumZoomRoundedClip(
+                        viewportSize: viewport,
+                        mediaSize: mediaSize,
+                        isZoomed: zoomScale > 1.02
+                    ))
+                    .contentShape(AlbumZoomRoundedClip(
+                        viewportSize: viewport,
+                        mediaSize: mediaSize,
+                        isZoomed: zoomScale > 1.02
+                    ))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isActive {
