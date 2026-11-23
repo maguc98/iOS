@@ -20,6 +20,7 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let lock = NSLock()
     private var activeFilter: CameraFilter = .pop
+    private var activeColorAdjustments = CameraColorAdjustments.neutral
     private var lastFrameTime: CFTimeInterval = 0
     private var lastAutofocusAnalysisTime: CFTimeInterval = 0
     private var autofocusVisualizationEnabled = false
@@ -56,6 +57,19 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
         }
     }
 
+    var colorAdjustments: CameraColorAdjustments {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return activeColorAdjustments
+        }
+        set {
+            lock.lock()
+            activeColorAdjustments = newValue
+            lock.unlock()
+        }
+    }
+
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
@@ -75,7 +89,8 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
         let previewInput = scale < 1
             ? input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             : input
-        let preview = selectedFilter.apply(to: previewInput).cropped(to: previewInput.extent)
+        let filtered = selectedFilter.apply(to: previewInput)
+        let preview = colorAdjustments.apply(to: filtered).cropped(to: previewInput.extent)
 
         guard let frame = context.createCGImage(preview, from: preview.extent) else { return }
         onFrame?(frame)
