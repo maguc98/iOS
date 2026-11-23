@@ -241,13 +241,15 @@ struct CameraScreen: View {
                                 filterPicker
                             case .superResolution:
                                 superResolutionPicker
+                            case .colorAdjustments:
+                                colorAdjustmentPicker
                             }
                         }
-                        .frame(width: width - 28, height: 82)
+                        .frame(width: width - 28, height: activeTool == .colorAdjustments ? 190 : 82)
                         .padding(5)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .position(x: width / 2, y: height - 55)
+                        .position(x: width / 2, y: height - (activeTool == .colorAdjustments ? 112 : 55))
                         .transition(
                             .asymmetric(
                                 insertion: .scale(scale: 0.94, anchor: .bottom)
@@ -582,13 +584,14 @@ struct CameraScreen: View {
                 isToolPanelExpanded.toggle()
             }
         }
-        .accessibilityHint("轻点展开或收起；上下滑动切换滤镜和 AI 超分")
+        .accessibilityHint("轻点展开或收起；上下滑动切换滤镜、AI 超分和调色盘")
     }
 
     private var toolTitle: String {
         switch activeTool {
         case .filters: return "滤镜"
         case .superResolution: return "AI 超分"
+        case .colorAdjustments: return "调色盘"
         }
     }
 
@@ -596,20 +599,23 @@ struct CameraScreen: View {
         switch activeTool {
         case .filters: return "camera.filters"
         case .superResolution: return "sparkles"
+        case .colorAdjustments: return "slider.horizontal.3"
         }
     }
 
     private func nextTool(after tool: CameraToolMode) -> CameraToolMode {
         switch tool {
         case .filters: return .superResolution
-        case .superResolution: return .filters
+        case .superResolution: return .colorAdjustments
+        case .colorAdjustments: return .filters
         }
     }
 
     private func previousTool(before tool: CameraToolMode) -> CameraToolMode {
         switch tool {
-        case .filters: return .superResolution
+        case .filters: return .colorAdjustments
         case .superResolution: return .filters
+        case .colorAdjustments: return .superResolution
         }
     }
 
@@ -679,6 +685,64 @@ struct CameraScreen: View {
         .padding(.vertical, 6)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         
+    }
+
+    private var colorAdjustmentPicker: some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 6) {
+                Label("调色盘", systemImage: "slider.horizontal.3")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(hex: 0x3D4352))
+                Spacer()
+                Button("重置") { camera.colorAdjustments = .neutral }
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color(hex: selectedPalette.accent))
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        isToolPanelExpanded = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x596171))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 10) {
+                adjustmentSlider("曝光", value: $camera.colorAdjustments.exposure, range: -2...2)
+                adjustmentSlider("色温", value: $camera.colorAdjustments.temperature, range: -100...100)
+            }
+            HStack(spacing: 10) {
+                adjustmentSlider("色调", value: $camera.colorAdjustments.tint, range: -100...100)
+                adjustmentSlider("饱和度", value: $camera.colorAdjustments.saturation, range: 0...2)
+            }
+            HStack(spacing: 10) {
+                adjustmentSlider("对比度", value: $camera.colorAdjustments.contrast, range: 0.5...1.5)
+                adjustmentSlider("高光", value: $camera.colorAdjustments.highlights, range: -1...1)
+            }
+            adjustmentSlider("阴影", value: $camera.colorAdjustments.shadows, range: -1...1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func adjustmentSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title).font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x596171))
+                Spacer(minLength: 2)
+                Text(value.wrappedValue.formatted(.number.precision(.fractionLength(1))))
+                    .font(.system(size: 8, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x3D4352))
+            }
+            Slider(value: value, in: range)
+                .tint(Color(hex: selectedPalette.accent))
+                .controlSize(.mini)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
@@ -5039,6 +5103,7 @@ private struct MacaronPalette: Identifiable {
 private enum CameraToolMode {
     case filters
     case superResolution
+    case colorAdjustments
 }
 
 private enum CaptureBarMode: Equatable {

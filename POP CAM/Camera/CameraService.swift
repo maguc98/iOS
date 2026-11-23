@@ -20,6 +20,9 @@ final class CameraService: ObservableObject {
     @Published var selectedFilter: CameraFilter = .pop {
         didSet { liveProcessor.selectedFilter = selectedFilter }
     }
+    @Published var colorAdjustments: CameraColorAdjustments = .neutral {
+        didSet { liveProcessor.colorAdjustments = colorAdjustments }
+    }
     @Published var flashEnabled = false
     @Published var cameraPosition: AVCaptureDevice.Position = .back
     @Published var zoomFactor: CGFloat = 1
@@ -867,8 +870,9 @@ final class CameraService: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 let filter = self.selectedFilter
+                let adjustments = self.colorAdjustments
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    let rendered = CapturedPhotoRenderer.process(image, filter: filter)
+                    let rendered = CapturedPhotoRenderer.process(image, filter: filter, adjustments: adjustments)
                     DispatchQueue.main.async {
                         guard let self else { return }
                         self.capturedImage = rendered
@@ -1210,7 +1214,7 @@ final class CameraService: ObservableObject {
 private enum CapturedPhotoRenderer {
     private static let context = CIContext(options: [.cacheIntermediates: false])
 
-    static func process(_ image: UIImage, filter: CameraFilter) -> UIImage {
+    static func process(_ image: UIImage, filter: CameraFilter, adjustments: CameraColorAdjustments = .neutral) -> UIImage {
         guard let source = image.cgImage else { return image }
 
         let exifOrientation: Int32
@@ -1244,7 +1248,7 @@ private enum CapturedPhotoRenderer {
             .cropped(to: cropRect)
             .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
             .cropped(to: outputRect)
-        let filtered = filter.apply(to: cropped).cropped(to: outputRect)
+        let filtered = adjustments.apply(to: filter.apply(to: cropped)).cropped(to: outputRect)
 
         guard let rendered = context.createCGImage(filtered, from: outputRect) else {
             return image
