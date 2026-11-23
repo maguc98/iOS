@@ -1863,6 +1863,12 @@ struct CameraScreen: View {
     }
 }
 
+private struct AlbumViewerPresentation: Identifiable {
+    let id = UUID()
+    let media: [URL]
+    let initialURL: URL
+}
+
 private struct LocalMediaAlbumSheet: View {
     let media: [URL]
     let onDelete: (URL) -> Void
@@ -1882,9 +1888,7 @@ private struct LocalMediaAlbumSheet: View {
 
     @State private var isSelecting = false
     @State private var selectedPaths: Set<String> = []
-    @State private var selectedURL: URL?
-    @State private var viewerItems: [URL] = []
-    @State private var showViewer = false
+    @State private var viewerPresentation: AlbumViewerPresentation?
     @State private var showDeleteConfirmation = false
 
     @State private var memorySet: [URL] = []
@@ -2031,17 +2035,17 @@ private struct LocalMediaAlbumSheet: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .preferredColorScheme(.light)
-        .fullScreenCover(isPresented: $showViewer, onDismiss: {
-            selectedURL = nil
-            viewerItems = []
-        }) {
-            if let selectedURL, !viewerItems.isEmpty {
-                LocalAlbumDetailView(
-                    media: viewerItems,
-                    initialURL: selectedURL,
-                    onDelete: { deletedURL in removeMedia(deletedURL) }
-                )
-            }
+        .fullScreenCover(item: $viewerPresentation, onDismiss: {
+            viewerPresentation = nil
+        }) { presentation in
+            // The item is created atomically before presentation, so SwiftUI
+            // never receives an empty conditional cover during the transition.
+            LocalAlbumDetailView(
+                media: presentation.media,
+                initialURL: presentation.initialURL,
+                onDelete: { deletedURL in removeMedia(deletedURL) }
+            )
+            .id(presentation.id)
         }
         .alert("创建新相簿", isPresented: $showNewCollectionAlert) {
             TextField("例如：周末散步", text: $newCollectionName)
@@ -2849,11 +2853,13 @@ private struct LocalMediaAlbumSheet: View {
     }
 
     private func openViewer(_ url: URL, in source: [URL]) {
-        guard !source.isEmpty else { return }
-        viewerItems = source
-        selectedURL = url
+        guard !source.isEmpty, source.contains(url) else { return }
+        // Pass the selected photo and its paging data as one immutable value.
+        // This prevents a full-screen cover from being presented before its
+        // conditional content has received selectedURL/viewerItems.
+        let presentation = AlbumViewerPresentation(media: source, initialURL: url)
         withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-            showViewer = true
+            viewerPresentation = presentation
         }
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
