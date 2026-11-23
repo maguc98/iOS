@@ -3622,33 +3622,53 @@ private struct AlbumViewerPage: View {
                 }
             } else if let image {
                 GeometryReader { geometry in
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .scaleEffect(zoomScale)
-                        .clipped()
-                        // Clip the media itself: clipping only the outer TabView
-                        // does not round the photo's own four corners.
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .gesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    zoomScale = min(max(value, 1), 5)
-                                }
-                                .onEnded { _ in
-                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                                        if zoomScale < 1.05 { zoomScale = 1 }
+                    let viewport = geometry.size
+                    let imageSize = image.size
+                    let fitScale = min(
+                        viewport.width / max(imageSize.width, 1),
+                        viewport.height / max(imageSize.height, 1)
+                    )
+                    let fittedSize = CGSize(
+                        width: imageSize.width * fitScale,
+                        height: imageSize.height * fitScale
+                    )
+                    let mediaSize = isAspectFit
+                        ? fittedSize
+                        : viewport
+
+                    ZStack {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: isAspectFit ? .fit : .fill)
+                            .frame(width: mediaSize.width, height: mediaSize.height)
+                            .clipped()
+                            // Round the actual rendered image bounds, not the
+                            // full GeometryReader viewport. This keeps the R
+                            // corners visible for portrait, landscape and square
+                            // images even when aspect-fit leaves empty space.
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .scaleEffect(zoomScale)
+                            .gesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        zoomScale = min(max(value, 1), 5)
                                     }
+                                    .onEnded { _ in
+                                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                                            if zoomScale < 1.05 { zoomScale = 1 }
+                                        }
+                                    }
+                            )
+                            .onTapGesture(count: 2) {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
+                                    zoomScale = zoomScale > 1.1 ? 1 : 2
                                 }
-                        )
-                        .onTapGesture(count: 2) {
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) {
-                                zoomScale = zoomScale > 1.1 ? 1 : 2
                             }
-                        }
-                        .transition(.opacity)
+                            .transition(.opacity)
+                    }
+                    .frame(width: viewport.width, height: viewport.height)
+                    .clipped()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isActive {
