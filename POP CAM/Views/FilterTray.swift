@@ -25,10 +25,10 @@ struct FilterTray: View {
                                 proxy.scrollTo(filter.id, anchor: .center)
                             }
                         } label: {
-                            VStack(spacing: 7) {
+                            VStack(spacing: 4) {
                                 Circle()
                                     .fill(accents[filter] ?? .white)
-                                    .frame(width: 34, height: 34)
+                                    .frame(width: 28, height: 28)
                                     .overlay {
                                         if selection == filter {
                                             Circle().stroke(.white, lineWidth: 2.5)
@@ -39,7 +39,7 @@ struct FilterTray: View {
                                         }
                                     }
                                 Text(filter.rawValue)
-                                    .font(.system(size: 11, weight: selection == filter ? .bold : .medium))
+                                    .font(.system(size: 10, weight: selection == filter ? .bold : .medium))
                                     .foregroundStyle(Color(hex: 0x3D4352).opacity(selection == filter ? 1 : 0.78))
                             }
                             .frame(width: 48)
@@ -51,7 +51,7 @@ struct FilterTray: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 5)
             }
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .onAppear {

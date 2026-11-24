@@ -2,14 +2,16 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
 
-struct CameraColorAdjustments: Equatable {
-    // The two axes of the reference-style color pad.
-    // Hue is vertical (-100...100); color intensity is horizontal (-100...100).
-    var hue: Double = 0
+/// Parameters shared by every photographic style.
+/// Tone and Color form the two axes of the chooser; Intensity controls
+/// how strongly the selected filter and its custom grading are applied.
+struct CameraColorAdjustments: Equatable, Codable {
+    var tone: Double = 0
     var color: Double = 0
-    var palette: Double = 100
+    var intensity: Double = 100
 
-    // Keep the original controls for compatibility with existing capture processing.
+    // Retain the existing fine controls for compatibility with other
+    // camera workflows and older saved settings.
     var exposure: Double = 0
     var temperature: Double = 0
     var tint: Double = 0
@@ -18,36 +20,37 @@ struct CameraColorAdjustments: Equatable {
     var highlights: Double = 0
     var shadows: Double = 0
 
+    // Compatibility aliases for older UI code. New UI uses Tone/Color/Intensity.
+    var hue: Double {
+        get { tone }
+        set { tone = newValue }
+    }
+
+    var palette: Double {
+        get { intensity }
+        set { intensity = newValue }
+    }
+
     static let neutral = CameraColorAdjustments()
 
     func apply(to input: CIImage) -> CIImage {
         var image = input
 
-        // Hue and color are the two axes of the dotted pad.
-        let hueFilter = CIFilter.hueAdjust()
-        hueFilter.inputImage = image
-        hueFilter.angle = Float(hue / 100.0 * Double.pi)
-        let hueAdjusted = hueFilter.outputImage ?? image
+        // Tone changes the overall tonal presentation, not hue rotation.
+        let toneAmount = max(-1, min(1, tone / 100.0))
+        let toneFilter = CIFilter.colorControls()
+        toneFilter.inputImage = image
+        toneFilter.brightness = Float(toneAmount * 0.16)
+        toneFilter.contrast = Float(max(0.65, min(1.35, 1.0 + toneAmount * 0.14)))
+        image = toneFilter.outputImage ?? image
 
+        // Color changes color richness independently from Tone.
         let colorFilter = CIFilter.colorControls()
-        colorFilter.inputImage = hueAdjusted
-        colorFilter.saturation = Float(max(0, min(2, 1 + color / 100.0)))
-        let colorAdjusted = colorFilter.outputImage ?? hueAdjusted
-
-        // Palette strength controls how much of the pad's grading is mixed in.
-        let paletteStrength = CGFloat(max(0, min(100, palette)) / 100.0)
-        if paletteStrength < 0.999 {
-            let mask = CIImage(
-                color: CIColor(red: 1, green: 1, blue: 1, alpha: paletteStrength)
-            ).cropped(to: input.extent)
-            let blend = CIFilter.blendWithAlphaMask()
-            blend.inputImage = colorAdjusted
-            blend.backgroundImage = image
-            blend.maskImage = mask
-            image = blend.outputImage ?? colorAdjusted
-        } else {
-            image = colorAdjusted
-        }
+        colorFilter.inputImage = image
+        let colorMultiplier = 1.0 + max(-1, min(1, color / 100.0)) * 0.65
+        colorFilter.saturation = Float(max(0.05, min(2.2, saturation * colorMultiplier)))
+        colorFilter.contrast = Float(contrast)
+        image = colorFilter.outputImage ?? image
 
         let exposureFilter = CIFilter.exposureAdjust()
         exposureFilter.inputImage = image
@@ -59,12 +62,6 @@ struct CameraColorAdjustments: Equatable {
         temperatureFilter.neutral = CIVector(x: 6500, y: 0)
         temperatureFilter.targetNeutral = CIVector(x: 6500 + temperature * 22, y: tint * 18)
         image = temperatureFilter.outputImage ?? image
-
-        let controls = CIFilter.colorControls()
-        controls.inputImage = image
-        controls.saturation = Float(saturation)
-        controls.contrast = Float(contrast)
-        image = controls.outputImage ?? image
 
         let tone = CIFilter.highlightShadowAdjust()
         tone.inputImage = image
@@ -96,6 +93,20 @@ enum CameraFilter: String, CaseIterable, Identifiable {
         case .vintage: return "复古记忆"
         case .mono: return "黑白故事"
         case .cool: return "清冷蓝调"
+        }
+    }
+
+    /// Every style starts from its own Tone/Color coordinates.
+    var defaultAdjustments: CameraColorAdjustments {
+        switch self {
+        case .original: return .init(tone: 0, color: 0, intensity: 100)
+        case .pop: return .init(tone: 7, color: 12, intensity: 100)
+        case .warm: return .init(tone: 3, color: 8, intensity: 100)
+        case .cream: return .init(tone: 12, color: -14, intensity: 96)
+        case .film: return .init(tone: 3, color: -10, intensity: 100)
+        case .vintage: return .init(tone: -5, color: -4, intensity: 100)
+        case .mono: return .init(tone: 8, color: -100, intensity: 100)
+        case .cool: return .init(tone: -3, color: -8, intensity: 100)
         }
     }
 
@@ -145,9 +156,26 @@ enum CameraFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Applies the style and its Tone/Color customization, then blends the
+    /// complete result against the camera original using the Intensity value.
+    func render(_ input: CIImage, adjustments: CameraColorAdjustments) -> CIImage {
+        let styled = adjustments.apply(to: apply(to: input)).cropped(to: input.extent)
+        let strength = max(0, min(100, adjustments.intensity)) / 100.0
+        guard strength < 0.999 else { return styled }
+
+        let mask = CIImage(
+            color: CIColor(red: 1, green: 1, blue: 1, alpha: CGFloat(strength))
+        ).cropped(to: input.extent)
+        let blend = CIFilter.blendWithAlphaMask()
+        blend.inputImage = styled
+        blend.backgroundImage = input
+        blend.maskImage = mask
+        return (blend.outputImage ?? styled).cropped(to: input.extent)
+    }
+
     func apply(to image: UIImage) -> UIImage {
         guard let input = CIImage(image: image),
-              let output = apply(to: input).cropped(to: input.extent).cgImageValue else {
+              let output = render(input, adjustments: defaultAdjustments).cropped(to: input.extent).cgImageValue else {
             return image
         }
         return UIImage(cgImage: output, scale: image.scale, orientation: image.imageOrientation)

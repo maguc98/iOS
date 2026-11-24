@@ -89,8 +89,7 @@ final class LivePreviewProcessor: NSObject, AVCaptureVideoDataOutputSampleBuffer
         let previewInput = scale < 1
             ? input.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             : input
-        let filtered = selectedFilter.apply(to: previewInput)
-        let preview = colorAdjustments.apply(to: filtered).cropped(to: previewInput.extent)
+        let preview = selectedFilter.render(previewInput, adjustments: colorAdjustments).cropped(to: previewInput.extent)
 
         guard let frame = context.createCGImage(preview, from: preview.extent) else { return }
         onFrame?(frame)

@@ -6,13 +6,6 @@ import ImageIO
 import SwiftUI
 import UIKit
 
-private enum ColorAdjustmentSelection: Equatable {
-    case pad
-    case hue
-    case color
-    case palette
-}
-
 struct CameraScreen: View {
     @StateObject private var camera = CameraService()
     @AppStorage("popcam.macaronPalette") private var selectedPaletteID = "sakura"
@@ -24,7 +17,6 @@ struct CameraScreen: View {
     @State private var showSettings = false
     @State private var activeTool: CameraToolMode = .filters
     @State private var isToolPanelExpanded = false
-    @State private var selectedColorAdjustment: ColorAdjustmentSelection = .pad
     @AppStorage("popcam.superResolutionEnabled") private var superResolutionEnabled = false
     @AppStorage("popcam.superResolutionScale") private var superResolutionScale = 2
     @AppStorage("popcam.videoStabilizationEnabled") private var videoStabilizationEnabled = true
@@ -249,32 +241,22 @@ struct CameraScreen: View {
                                 filterPicker
                             case .superResolution:
                                 superResolutionPicker
-                            case .colorAdjustments:
-                                colorAdjustmentPicker
                             }
                         }
-                        .frame(width: width - 28, height: activeTool == .colorAdjustments ? 190 : 82)
+                        .frame(width: width - 28, height: activeTool == .filters ? 246 : 82)
                         .padding(5)
                         .background(
-                            activeTool == .colorAdjustments
-                                ? Color.black.opacity(0.88)
-                                : Color.white,
+                            Color.white,
                             in: RoundedRectangle(
-                                cornerRadius: activeTool == .colorAdjustments ? 22 : 12,
+                                cornerRadius: activeTool == .filters ? 18 : 12,
                                 style: .continuous
                             )
                         )
-                        .overlay {
-                            if activeTool == .colorAdjustments {
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
-                            }
-                        }
                         .clipShape(RoundedRectangle(
-                            cornerRadius: activeTool == .colorAdjustments ? 22 : cornerRadius,
+                            cornerRadius: activeTool == .filters ? 18 : 12,
                             style: .continuous
                         ))
-                        .position(x: width / 2, y: height - (activeTool == .colorAdjustments ? 112 : 55))
+                        .position(x: width / 2, y: height - (activeTool == .filters ? 130 : 55))
                         .transition(
                             .asymmetric(
                                 insertion: .scale(scale: 0.94, anchor: .bottom)
@@ -609,14 +591,13 @@ struct CameraScreen: View {
                 isToolPanelExpanded.toggle()
             }
         }
-        .accessibilityHint("轻点展开或收起；上下滑动切换滤镜、AI 超分和调色盘")
+        .accessibilityHint("轻点展开或收起；上下滑动切换滤镜和 AI 超分")
     }
 
     private var toolTitle: String {
         switch activeTool {
         case .filters: return "滤镜"
         case .superResolution: return "AI 超分"
-        case .colorAdjustments: return "调色盘"
         }
     }
 
@@ -624,33 +605,35 @@ struct CameraScreen: View {
         switch activeTool {
         case .filters: return "camera.filters"
         case .superResolution: return "sparkles"
-        case .colorAdjustments: return "slider.horizontal.3"
         }
     }
 
     private func nextTool(after tool: CameraToolMode) -> CameraToolMode {
-        switch tool {
-        case .filters: return .superResolution
-        case .superResolution: return .colorAdjustments
-        case .colorAdjustments: return .filters
-        }
+        tool == .filters ? .superResolution : .filters
     }
 
     private func previousTool(before tool: CameraToolMode) -> CameraToolMode {
-        switch tool {
-        case .filters: return .colorAdjustments
-        case .superResolution: return .filters
-        case .colorAdjustments: return .superResolution
-        }
+        tool == .filters ? .superResolution : .filters
     }
 
     private var filterPicker: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             HStack(spacing: 6) {
-                Label("滤镜", systemImage: "camera.filters")
+                Label("摄影风格", systemImage: "camera.filters")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(hex: 0x3D4352))
                 Spacer()
+                Button {
+                    camera.colorAdjustments = camera.selectedFilter.defaultAdjustments
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: selectedPalette.accent))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("重置当前摄影风格")
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         isToolPanelExpanded = false
@@ -663,15 +646,56 @@ struct CameraScreen: View {
                 }
                 .buttonStyle(.plain)
             }
+
             FilterTray(selection: $camera.selectedFilter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 42)
-                .contentShape(Rectangle())
+                .frame(height: 52)
+
+            HStack(spacing: 10) {
+                styleValue("TONE", value: camera.colorAdjustments.tone)
+                styleValue("COLOR", value: camera.colorAdjustments.color)
+                styleValue("INTENSITY", value: camera.colorAdjustments.intensity)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 3)
+
+            ColorGradingPad(
+                tone: $camera.colorAdjustments.tone,
+                color: $camera.colorAdjustments.color
+            )
+            .frame(width: 96, height: 96)
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack {
+                    Text("风格强度")
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(hex: 0x596171))
+                    Spacer()
+                    Text("\(Int(camera.colorAdjustments.intensity.rounded()))")
+                        .font(.system(size: 9, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                }
+                Slider(value: $camera.colorAdjustments.intensity, in: 0...100)
+                    .tint(Color(hex: selectedPalette.accent))
+                    .controlSize(.mini)
+            }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        
+    }
+
+    private func styleValue(_ title: String, value: Double) -> some View {
+        HStack(spacing: 3) {
+            Text(title)
+                .foregroundStyle(Color(hex: 0x7A8391))
+            Text("\(Int(value.rounded()))")
+                .foregroundStyle(Color(hex: 0x303846))
+                .monospacedDigit()
+        }
+        .font(.system(size: 8, weight: .bold, design: .rounded))
+        .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 
     private var superResolutionPicker: some View {
@@ -710,117 +734,6 @@ struct CameraScreen: View {
         .padding(.vertical, 6)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         
-    }
-
-    private var colorAdjustmentPicker: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 7) {
-                colorAdjustmentValueButton("色调", value: camera.colorAdjustments.hue, control: .hue)
-                colorAdjustmentValueButton("颜色", value: camera.colorAdjustments.color, control: .color)
-                colorAdjustmentValueButton("调色板", value: camera.colorAdjustments.palette, control: .palette)
-                Spacer(minLength: 0)
-                Button {
-                    camera.colorAdjustments = .neutral
-                    withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
-                        selectedColorAdjustment = .pad
-                    }
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.92))
-                        .frame(width: 25, height: 25)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("重置调色")
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 29)
-            .background(Color.white.opacity(0.11), in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.7))
-
-            if selectedColorAdjustment == .pad {
-                ColorGradingPad(
-                    hue: $camera.colorAdjustments.hue,
-                    color: $camera.colorAdjustments.color
-                )
-                .frame(width: 126, height: 126)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            } else {
-                VStack(spacing: 9) {
-                    Text("\(Int(selectedColorAdjustmentValue.rounded()))")
-                        .font(.system(size: 37, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .contentTransition(.numericText())
-                    ColorAdjustmentRuler(
-                        value: selectedColorAdjustmentBinding,
-                        range: selectedColorAdjustmentRange
-                    )
-                    .frame(height: 30)
-                    .padding(.horizontal, 5)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 126)
-                .transition(.opacity)
-            }
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 5)
-        .animation(.spring(response: 0.30, dampingFraction: 0.86), value: selectedColorAdjustment)
-    }
-
-    private func colorAdjustmentValueButton(
-        _ title: String,
-        value: Double,
-        control: ColorAdjustmentSelection
-    ) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.86)) {
-                selectedColorAdjustment = selectedColorAdjustment == control ? .pad : control
-            }
-            UISelectionFeedbackGenerator().selectionChanged()
-        } label: {
-            HStack(spacing: 3) {
-                Text(title)
-                    .foregroundStyle(Color.white.opacity(0.68))
-                Text("\(Int(value.rounded()))")
-                    .foregroundStyle(Color.white)
-                    .monospacedDigit()
-            }
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
-            .fixedSize()
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title) \(Int(value.rounded()))")
-        .accessibilityHint("再次点按返回点阵调色区")
-    }
-
-    private var selectedColorAdjustmentValue: Double {
-        switch selectedColorAdjustment {
-        case .pad: return 0
-        case .hue: return camera.colorAdjustments.hue
-        case .color: return camera.colorAdjustments.color
-        case .palette: return camera.colorAdjustments.palette
-        }
-    }
-
-    private var selectedColorAdjustmentRange: ClosedRange<Double> {
-        switch selectedColorAdjustment {
-        case .pad, .hue, .color: return -100...100
-        case .palette: return 0...100
-        }
-    }
-
-    private var selectedColorAdjustmentBinding: Binding<Double> {
-        switch selectedColorAdjustment {
-        case .pad, .palette: return $camera.colorAdjustments.palette
-        case .hue: return $camera.colorAdjustments.hue
-        case .color: return $camera.colorAdjustments.color
-        }
     }
 
     private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
@@ -5181,7 +5094,6 @@ private struct MacaronPalette: Identifiable {
 private enum CameraToolMode {
     case filters
     case superResolution
-    case colorAdjustments
 }
 
 private enum CaptureBarMode: Equatable {
@@ -5194,9 +5106,9 @@ private enum CaptureBarMode: Equatable {
     case level
 }
 
-/// Compact two-axis dot-matrix control inspired by the supplied iOS Photos recording.
+/// Apple-style two-axis style chooser: vertical Tone and horizontal Color.
 private struct ColorGradingPad: View {
-    @Binding var hue: Double
+    @Binding var tone: Double
     @Binding var color: Double
 
     private let inset: CGFloat = 14
@@ -5206,7 +5118,7 @@ private struct ColorGradingPad: View {
         GeometryReader { geometry in
             let size = geometry.size
             let normalizedX = CGFloat((min(max(color, -100), 100) + 100) / 200)
-            let normalizedY = CGFloat((100 - min(max(hue, -100), 100)) / 200)
+            let normalizedY = CGFloat((100 - min(max(tone, -100), 100)) / 200)
             let point = CGPoint(
                 x: inset + normalizedX * max(0, size.width - inset * 2),
                 y: inset + normalizedY * max(0, size.height - inset * 2)
@@ -5273,60 +5185,14 @@ private struct ColorGradingPad: View {
                         let x = min(max((gesture.location.x - inset) / max(1, size.width - inset * 2), 0), 1)
                         let y = min(max((gesture.location.y - inset) / max(1, size.height - inset * 2), 0), 1)
                         color = Double(x) * 200 - 100
-                        hue = 100 - Double(y) * 200
+                        tone = 100 - Double(y) * 200
                     }
             )
         }
         .accessibilityElement()
         .accessibilityLabel("二维调色区")
-        .accessibilityValue("色调 \(Int(hue.rounded()))，颜色 \(Int(color.rounded()))")
-        .accessibilityHint("上下拖动调整色调，左右拖动调整颜色强度")
-    }
-}
-
-/// Fine ruler shown after selecting one of the three numeric controls.
-private struct ColorAdjustmentRuler: View {
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-
-    private let tickCount = 41
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = max(1, geometry.size.width)
-            let progress = min(max((value - range.lowerBound) / (range.upperBound - range.lowerBound), 0), 1)
-            let markerX = CGFloat(progress) * width
-
-            ZStack {
-                ForEach(0..<tickCount, id: \.self) { index in
-                    let isMajor = index.isMultiple(of: 5)
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Color.white.opacity(isMajor ? 0.72 : 0.38))
-                        .frame(width: 2, height: isMajor ? 20 : 11)
-                        .position(
-                            x: CGFloat(index) / CGFloat(tickCount - 1) * width,
-                            y: geometry.size.height / 2
-                        )
-                }
-
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Color(red: 1, green: 0.86, blue: 0.28))
-                    .frame(width: 2.5, height: 27)
-                    .position(x: markerX, y: geometry.size.height / 2)
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        let fraction = min(max(gesture.location.x / width, 0), 1)
-                        value = range.lowerBound + Double(fraction) * (range.upperBound - range.lowerBound)
-                    }
-            )
-        }
-        .accessibilityElement()
-        .accessibilityLabel("精细调节刻度")
-        .accessibilityValue("\(Int(value.rounded()))")
-        .accessibilityHint("左右拖动调整数值")
+        .accessibilityValue("色调 \(Int(tone.rounded()))，颜色 \(Int(color.rounded()))")
+        .accessibilityHint("上下拖动调整影调，左右拖动调整颜色表现")
     }
 }
 

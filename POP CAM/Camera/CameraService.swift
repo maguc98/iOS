@@ -18,10 +18,21 @@ final class CameraService: ObservableObject {
     @Published var previewImage: CGImage?
     @Published private(set) var visualMotionEstimate = VisualMotionEstimate()
     @Published var selectedFilter: CameraFilter = .pop {
-        didSet { liveProcessor.selectedFilter = selectedFilter }
+        didSet {
+            guard selectedFilter != oldValue else { return }
+            styleAdjustments[oldValue.rawValue] = colorAdjustments
+            persistStyleAdjustments()
+            UserDefaults.standard.set(selectedFilter.rawValue, forKey: "popcam.selectedPhotographicStyle")
+            liveProcessor.selectedFilter = selectedFilter
+            colorAdjustments = styleAdjustments[selectedFilter.rawValue] ?? selectedFilter.defaultAdjustments
+        }
     }
     @Published var colorAdjustments: CameraColorAdjustments = .neutral {
-        didSet { liveProcessor.colorAdjustments = colorAdjustments }
+        didSet {
+            styleAdjustments[selectedFilter.rawValue] = colorAdjustments
+            persistStyleAdjustments()
+            liveProcessor.colorAdjustments = colorAdjustments
+        }
     }
     @Published var flashEnabled = false
     @Published var cameraPosition: AVCaptureDevice.Position = .back
@@ -79,6 +90,27 @@ final class CameraService: ObservableObject {
     private var recordingStartedAt: Date?
     private var recordingTimer: Timer?
     private var focusRequestID = 0
+    private var styleAdjustments: [String: CameraColorAdjustments] = [:]
+
+    init() {
+        let defaults = UserDefaults.standard
+        if let savedStyle = defaults.string(forKey: "popcam.selectedPhotographicStyle"),
+           let style = CameraFilter(rawValue: savedStyle) {
+            selectedFilter = style
+        }
+        if let data = defaults.data(forKey: "popcam.photographicStyleAdjustments"),
+           let saved = try? JSONDecoder().decode([String: CameraColorAdjustments].self, from: data) {
+            styleAdjustments = saved
+        }
+        colorAdjustments = styleAdjustments[selectedFilter.rawValue] ?? selectedFilter.defaultAdjustments
+        liveProcessor.selectedFilter = selectedFilter
+        liveProcessor.colorAdjustments = colorAdjustments
+    }
+
+    private func persistStyleAdjustments() {
+        guard let data = try? JSONEncoder().encode(styleAdjustments) else { return }
+        UserDefaults.standard.set(data, forKey: "popcam.photographicStyleAdjustments")
+    }
 
     func prepare() {
         reloadSavedMedia()
@@ -1248,7 +1280,7 @@ private enum CapturedPhotoRenderer {
             .cropped(to: cropRect)
             .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
             .cropped(to: outputRect)
-        let filtered = adjustments.apply(to: filter.apply(to: cropped)).cropped(to: outputRect)
+        let filtered = filter.render(cropped, adjustments: adjustments).cropped(to: outputRect)
 
         guard let rendered = context.createCGImage(filtered, from: outputRect) else {
             return image
