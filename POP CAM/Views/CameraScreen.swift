@@ -59,36 +59,18 @@ struct CameraScreen: View {
     var body: some View {
         ZStack {
             // Soft macaron canvas fills everything outside the live viewfinder.
-            LinearGradient(
-                colors: [
-                    Color(hex: selectedPalette.background[0]),
-                    Color(hex: selectedPalette.background[1])
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            Color(hex: selectedPalette.background[0])
+                .ignoresSafeArea()
 
             // Keep the live camera image strictly inside the viewfinder window.
             // The surrounding area remains the macaron-colored app canvas.
             GeometryReader { previewGeometry in
-                // Keep the live viewfinder in a dedicated, unobstructed lane.
-                // Expanding a panel reduces the preview proportionally; it never
-                // allows controls to slide over or cover the camera image.
-                let topReservation = CGFloat(60 + 42 + (isCaptureBarCollapsed ? 0 : 58) + 18)
-                let editorHeight = isToolPanelExpanded
-                    ? CGFloat(activeTool == .filters ? 210 : 92) + 7 + (showAutofocusCapsule ? 82 : 52)
-                    : 90
-                let bottomReservation = CGFloat(60) + editorHeight + 22 + 12
-                let availableHeight = max(
-                    1,
-                    previewGeometry.size.height - topReservation - bottomReservation
-                )
-                let width = min(previewGeometry.size.width * 0.90, availableHeight * 0.75)
+                let width = previewGeometry.size.width * 0.86
+                // Preserve the established portrait 3:4 viewfinder geometry.
                 let height = width * 4 / 3
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = topReservation + availableHeight / 2
+                let centerY = previewGeometry.size.height * 0.482
 
                 ZStack {
                     Group {
@@ -297,19 +279,10 @@ struct CameraScreen: View {
                             ))
                     }
                     Spacer(minLength: 18)
-                    HStack(alignment: .center, spacing: 8) {
-                        toolCapsule
-                            .frame(width: 112)
-                        zoomControl
-                            .frame(maxWidth: .infinity)
-                    }
-                    .padding(.bottom, 16)
-                    expandedCaptureContent
-                    modeFooter
-                        .padding(.top, 10)
+                    bottomControlDock
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 60)
+                .padding(.top, 72)
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
@@ -607,38 +580,9 @@ struct CameraScreen: View {
 
     private var filterPicker: some View {
         VStack(spacing: 3) {
-            HStack(spacing: 6) {
-                Label("摄影风格", systemImage: "camera.filters")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: 0x3D4352))
-                Spacer()
-                Button {
-                    camera.colorAdjustments = camera.selectedFilter.defaultAdjustments
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: selectedPalette.accent))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("重置当前摄影风格")
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isToolPanelExpanded = false
-                    }
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x596171))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-            }
-
             FilterTray(selection: $camera.selectedFilter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .frame(height: 44)
 
             HStack(spacing: 10) {
                 styleValue("TONE", value: camera.colorAdjustments.tone)
@@ -652,7 +596,7 @@ struct CameraScreen: View {
                 tone: $camera.colorAdjustments.tone,
                 color: $camera.colorAdjustments.color
             )
-            .frame(width: 64, height: 64)
+            .frame(width: 44, height: 44)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack {
@@ -671,43 +615,138 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 2)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.82), lineWidth: 1)
+    }
+
+    private func toolPanelTab(
+        _ tool: CameraToolMode,
+        title: String,
+        symbol: String
+    ) -> some View {
+        Button {
+            guard activeTool != tool else { return }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+                activeTool = tool
+            }
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10, weight: .bold))
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Color(hex: 0x3D4352))
+            .padding(.horizontal, 11)
+            .frame(height: 27)
+            .background(
+                activeTool == tool ? Color(hex: 0xFFE45E) : Color.white.opacity(0.72),
+                in: Capsule()
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(activeTool == tool ? .isSelected : [])
     }
 
     private var bottomToolPanel: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                toolPanelTab(.filters, title: "摄影风格", symbol: "camera.filters")
+                toolPanelTab(.superResolution, title: "AI 超分", symbol: "sparkles")
+                Spacer(minLength: 0)
+
+                if activeTool == .filters {
+                    Button {
+                        camera.colorAdjustments = camera.selectedFilter.defaultAdjustments
+                        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color(hex: selectedPalette.accent))
+                            .frame(width: 25, height: 25)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("重置当前摄影风格")
+                }
+
+                Button {
+                    withAnimation(.spring(response: 0.36, dampingFraction: 0.84)) {
+                        isToolPanelExpanded = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x596171))
+                        .frame(width: 25, height: 25)
+                        .background(Color.white.opacity(0.72), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭功能面板")
+            }
+
+            Group {
+                switch activeTool {
+                case .filters:
+                    filterPicker
+                case .superResolution:
+                    superResolutionPicker
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .frame(height: activeTool == .filters ? 174 : 124)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0xA6B7C9).opacity(0.16), radius: 14, y: 5)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    /// The lower red-marked area is a single mode-switching dock.
+    /// Opening a tool panel replaces the entire default capture dock, so
+    /// gallery, shutter, zoom and mode labels never sit underneath the panel.
+    private var bottomControlDock: some View {
         Group {
-            switch activeTool {
-            case .filters:
-                filterPicker
-            case .superResolution:
-                superResolutionPicker
+            if isToolPanelExpanded {
+                bottomToolPanel
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .bottom)
+                                .combined(with: .opacity)
+                                .combined(with: .scale(scale: 0.97, anchor: .bottom)),
+                            removal: .move(edge: .bottom)
+                                .combined(with: .opacity)
+                        )
+                    )
+            } else {
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 8) {
+                        toolCapsule
+                            .frame(width: 112)
+                        zoomControl
+                            .frame(maxWidth: .infinity)
+                    }
+                    .padding(.bottom, 10)
+
+                    shutterControls
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+                    modeFooter
+                        .padding(.top, 7)
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: activeTool == .filters ? 200 : 82)
-        .padding(5)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(
-                cornerRadius: activeTool == .filters ? 18 : 12,
-                style: .continuous
-            )
-        )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: activeTool == .filters ? 18 : 12,
-                style: .continuous
-            )
-            .stroke(Color.white.opacity(0.88), lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(
-            cornerRadius: activeTool == .filters ? 18 : 12,
-            style: .continuous
-        ))
+        .animation(.spring(response: 0.40, dampingFraction: 0.84), value: isToolPanelExpanded)
+        .animation(.spring(response: 0.34, dampingFraction: 0.84), value: activeTool)
     }
 
     /// The style editor takes over the shutter-button row while keeping
@@ -756,29 +795,15 @@ struct CameraScreen: View {
     private var superResolutionPicker: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
-                Label("AI 超分", systemImage: "sparkles")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(hex: 0x3D4352))
                 Toggle("拍摄后自动增强", isOn: $superResolutionEnabled)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .labelsHidden()
                     .tint(Color(hex: selectedPalette.accent))
-                    .scaleEffect(0.82, anchor: .trailing)
-                Text("自动增强")
+                    .scaleEffect(0.82, anchor: .leading)
+                Text("拍摄后自动增强")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(Color(hex: 0x596171))
                 Spacer(minLength: 2)
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        isToolPanelExpanded = false
-                    }
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x596171))
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
             }
             HStack(spacing: 6) {
                 superResolutionScaleButton(2, subtitle: "更快")
@@ -787,8 +812,7 @@ struct CameraScreen: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        
+        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func superResolutionScaleButton(_ scale: Int, subtitle: String) -> some View {
@@ -1207,11 +1231,7 @@ struct CameraScreen: View {
         .clipped()
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay {
-            Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1)
-        }
-        .shadow(color: Color(hex: 0xA6B7C9).opacity(0.12), radius: 10, y: 4)
+        .background(Color.white, in: Capsule())
         .contentShape(Capsule())
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
