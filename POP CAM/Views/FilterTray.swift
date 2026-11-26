@@ -16,59 +16,48 @@ struct FilterTray: View {
     ]
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(CameraFilter.allCases) { filter in
-                        Button {
-                            guard selection != filter else { return }
-                            selection = filter
-                            UISelectionFeedbackGenerator().selectionChanged()
-                        } label: {
-                            VStack(spacing: 5) {
-                                Circle()
-                                    .fill(accents[filter] ?? .white)
-                                    .frame(width: 28, height: 28)
-                                    .overlay {
-                                        if selection == filter {
-                                            Circle()
-                                                .stroke(.white, lineWidth: 2.5)
-                                                .padding(-5)
-                                                .matchedGeometryEffect(id: "filter-ring", in: selectionMotion)
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 11, weight: .bold))
-                                                .foregroundStyle(Color.black.opacity(0.72))
-                                                .transition(.scale.combined(with: .opacity))
-                                        }
-                                    }
-                                Text(filter.rawValue)
-                                    .font(.system(size: 10, weight: selection == filter ? .bold : .medium))
-                                    .foregroundStyle(Color(hex: 0x3D4352).opacity(selection == filter ? 1 : 0.78))
-                                    .contentTransition(.opacity)
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3),
+            spacing: 4
+        ) {
+            ForEach(CameraFilter.allCases) { filter in
+                Button {
+                    guard selection != filter else { return }
+                    selection = filter
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    VStack(spacing: 2) {
+                        Circle()
+                            .fill(accents[filter] ?? .white)
+                            .frame(width: 24, height: 24)
+                            .overlay {
+                                if selection == filter {
+                                    Circle()
+                                        .stroke(.white, lineWidth: 2)
+                                        .padding(-3)
+                                        .matchedGeometryEffect(id: "filter-ring", in: selectionMotion)
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(Color.black.opacity(0.72))
+                                }
                             }
-                            .frame(width: 48)
-                            .contentShape(Rectangle())
-                            .scaleEffect(selection == filter ? 1.04 : 0.96)
-                            .animation(.spring(response: 0.34, dampingFraction: 0.76), value: selection)
-                        }
-                        .buttonStyle(.plain)
-                        .id(filter.id)
-                        .accessibilityLabel("(filter.rawValue)，(filter.subtitle)")
+                        Text(filter.rawValue)
+                            .font(.system(size: 8, weight: selection == filter ? .bold : .medium))
+                            .foregroundStyle(Color(hex: 0x3D4352).opacity(selection == filter ? 1 : 0.78))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
+                    .contentShape(Rectangle())
+                    .scaleEffect(selection == filter ? 1.03 : 0.97)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.76), value: selection)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-            .onAppear {
-                proxy.scrollTo(selection.id, anchor: .center)
-            }
-            .onChange(of: selection) { _, newValue in
-                withAnimation(.snappy(duration: 0.32)) {
-                    proxy.scrollTo(newValue.id, anchor: .center)
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("(filter.rawValue)，(filter.subtitle)")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
