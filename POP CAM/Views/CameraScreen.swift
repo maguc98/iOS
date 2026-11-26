@@ -579,41 +579,30 @@ struct CameraScreen: View {
     }
 
     private var filterPicker: some View {
-        VStack(spacing: 3) {
-            FilterTray(selection: $camera.selectedFilter)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
+        HStack(alignment: .center, spacing: 9) {
+            // Large grading pad on the left, matching the user's marked area.
+            VStack(spacing: 5) {
+                ColorGradingPad(
+                    tone: $camera.colorAdjustments.tone,
+                    color: $camera.colorAdjustments.color
+                )
+                .frame(width: 112, height: 112)
 
-            HStack(spacing: 10) {
-                styleValue("TONE", value: camera.colorAdjustments.tone)
-                styleValue("COLOR", value: camera.colorAdjustments.color)
-                styleValue("INTENSITY", value: camera.colorAdjustments.intensity)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 3)
-
-            ColorGradingPad(
-                tone: $camera.colorAdjustments.tone,
-                color: $camera.colorAdjustments.color
-            )
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 1) {
-                HStack {
-                    Text("风格强度")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(hex: 0x596171))
-                    Spacer()
-                    Text("\(Int(camera.colorAdjustments.intensity.rounded()))")
-                        .font(.system(size: 9, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(Color(hex: 0x3D4352))
+                HStack(spacing: 3) {
+                    styleValue("T", value: camera.colorAdjustments.tone)
+                    styleValue("C", value: camera.colorAdjustments.color)
+                    styleValue("I", value: camera.colorAdjustments.intensity)
                 }
-                Slider(value: $camera.colorAdjustments.intensity, in: 0...100)
-                    .tint(Color(hex: selectedPalette.accent))
-                    .controlSize(.mini)
+                .frame(maxWidth: .infinity)
             }
+            .frame(width: 118)
+
+            // Filters are arranged as 3 columns. All eight presets remain
+            // available, with the final row containing the remaining options.
+            FilterTray(selection: $camera.selectedFilter)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 4)
         .padding(.vertical, 2)
     }
 
@@ -696,7 +685,7 @@ struct CameraScreen: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity)
-        .frame(height: activeTool == .filters ? 174 : 124)
+        .frame(height: activeTool == .filters ? 214 : 124)
         .background(
             .ultraThinMaterial,
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
