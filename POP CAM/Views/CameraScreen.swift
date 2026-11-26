@@ -283,7 +283,9 @@ struct CameraScreen: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 72)
-                .padding(.bottom, 12)
+                // Add extra bottom breathing room while a tool is open,
+                // preventing slider drags from colliding with system gestures.
+                .padding(.bottom, isToolPanelExpanded ? 30 : 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isCaptureBarCollapsed)
@@ -606,7 +608,14 @@ struct CameraScreen: View {
                 }
                 Slider(value: $camera.colorAdjustments.intensity, in: 0...100)
                     .tint(Color(hex: selectedPalette.accent))
-                    .controlSize(.mini)
+                    .controlSize(.regular)
+                    .frame(height: 30)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 5)
+                    // Keep the drag target away from the iPhone bottom-edge
+                    // navigation gesture while preserving the full slider range.
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(DragGesture(minimumDistance: 0))
             }
             .frame(width: 118)
 
@@ -698,7 +707,9 @@ struct CameraScreen: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity)
-        .frame(height: activeTool == .filters ? 214 : 124)
+        // Both tools occupy the same fixed footprint; switching to AI SR
+        // never collapses the dock and shifts surrounding controls.
+        .frame(height: 214)
         .background(
             .ultraThinMaterial,
             in: RoundedRectangle(cornerRadius: 20, style: .continuous)
