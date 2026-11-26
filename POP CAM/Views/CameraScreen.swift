@@ -694,7 +694,7 @@ struct CameraScreen: View {
                             )
                         )
                     sideCaptureControls
-                        .frame(height: 58)
+                        .frame(height: 88)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 .transition(.opacity)
