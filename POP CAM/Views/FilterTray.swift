@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FilterTray: View {
     @Binding var selection: CameraFilter
+    @Namespace private var selectionMotion
 
     private let accents: [CameraFilter: Color] = [
         .original: Color.white,
@@ -17,50 +18,52 @@ struct FilterTray: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                HStack(spacing: 14) {
                     ForEach(CameraFilter.allCases) { filter in
                         Button {
-                            withAnimation(.snappy(duration: 0.25)) {
-                                selection = filter
-                                proxy.scrollTo(filter.id, anchor: .center)
-                            }
+                            guard selection != filter else { return }
+                            selection = filter
+                            UISelectionFeedbackGenerator().selectionChanged()
                         } label: {
-                            VStack(spacing: 4) {
+                            VStack(spacing: 5) {
                                 Circle()
                                     .fill(accents[filter] ?? .white)
                                     .frame(width: 28, height: 28)
                                     .overlay {
                                         if selection == filter {
-                                            Circle().stroke(.white, lineWidth: 2.5)
+                                            Circle()
+                                                .stroke(.white, lineWidth: 2.5)
                                                 .padding(-5)
+                                                .matchedGeometryEffect(id: "filter-ring", in: selectionMotion)
                                             Image(systemName: "checkmark")
-                                                .font(.system(size: 12, weight: .bold))
+                                                .font(.system(size: 11, weight: .bold))
                                                 .foregroundStyle(Color.black.opacity(0.72))
+                                                .transition(.scale.combined(with: .opacity))
                                         }
                                     }
                                 Text(filter.rawValue)
                                     .font(.system(size: 10, weight: selection == filter ? .bold : .medium))
                                     .foregroundStyle(Color(hex: 0x3D4352).opacity(selection == filter ? 1 : 0.78))
+                                    .contentTransition(.opacity)
                             }
                             .frame(width: 48)
                             .contentShape(Rectangle())
+                            .scaleEffect(selection == filter ? 1.04 : 0.96)
+                            .animation(.spring(response: 0.34, dampingFraction: 0.76), value: selection)
                         }
                         .buttonStyle(.plain)
                         .id(filter.id)
-                        .accessibilityLabel("\(filter.rawValue)，\(filter.subtitle)")
+                        .accessibilityLabel("(filter.rawValue)，(filter.subtitle)")
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 5)
+                .padding(.vertical, 8)
             }
-            .contentMargins(.horizontal, 0, for: .scrollContent)
             .onAppear {
-                DispatchQueue.main.async {
-                    proxy.scrollTo(selection.id, anchor: .center)
-                }
+                proxy.scrollTo(selection.id, anchor: .center)
             }
             .onChange(of: selection) { _, newValue in
-                withAnimation(.snappy(duration: 0.25)) {
+                withAnimation(.snappy(duration: 0.32)) {
                     proxy.scrollTo(newValue.id, anchor: .center)
                 }
             }
