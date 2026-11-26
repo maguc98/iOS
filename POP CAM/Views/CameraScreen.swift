@@ -59,19 +59,36 @@ struct CameraScreen: View {
     var body: some View {
         ZStack {
             // Soft macaron canvas fills everything outside the live viewfinder.
-            Color(hex: selectedPalette.background[0])
-                .ignoresSafeArea()
+            LinearGradient(
+                colors: [
+                    Color(hex: selectedPalette.background[0]),
+                    Color(hex: selectedPalette.background[1])
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
             // Keep the live camera image strictly inside the viewfinder window.
             // The surrounding area remains the macaron-colored app canvas.
             GeometryReader { previewGeometry in
-                let width = previewGeometry.size.width * 0.86
-                // The viewfinder's portrait 3:4 geometry is fixed; do not cap
-                // its height independently, or the preview can drift off-ratio.
+                // Keep the live viewfinder in a dedicated, unobstructed lane.
+                // Expanding a panel reduces the preview proportionally; it never
+                // allows controls to slide over or cover the camera image.
+                let topReservation = CGFloat(60 + 42 + (isCaptureBarCollapsed ? 0 : 58) + 18)
+                let editorHeight = isToolPanelExpanded
+                    ? CGFloat(activeTool == .filters ? 210 : 92) + 7 + (showAutofocusCapsule ? 82 : 52)
+                    : 90
+                let bottomReservation = CGFloat(60) + editorHeight + 22 + 12
+                let availableHeight = max(
+                    1,
+                    previewGeometry.size.height - topReservation - bottomReservation
+                )
+                let width = min(previewGeometry.size.width * 0.90, availableHeight * 0.75)
                 let height = width * 4 / 3
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.482
+                let centerY = topReservation + availableHeight / 2
 
                 ZStack {
                     Group {
@@ -292,11 +309,13 @@ struct CameraScreen: View {
                         .padding(.top, 10)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 72)
+                .padding(.top, 60)
                 .padding(.bottom, 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isCaptureBarCollapsed)
+                .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isToolPanelExpanded)
+                .animation(.spring(response: 0.38, dampingFraction: 0.84), value: activeTool)
             }
             .ignoresSafeArea()
 
@@ -526,7 +545,11 @@ struct CameraScreen: View {
         .padding(.horizontal, 13)
         .frame(maxWidth: .infinity)
         .frame(height: 38)
-        .background(Color.white, in: Capsule())
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0xA6B7C9).opacity(0.14), radius: 12, y: 5)
         .contentShape(Capsule())
         // A single gesture recognizer distinguishes a tap from a vertical swipe.
         // This avoids Button and DragGesture competing for the same touch sequence.
@@ -583,7 +606,7 @@ struct CameraScreen: View {
     }
 
     private var filterPicker: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 3) {
             HStack(spacing: 6) {
                 Label("摄影风格", systemImage: "camera.filters")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -629,7 +652,7 @@ struct CameraScreen: View {
                 tone: $camera.colorAdjustments.tone,
                 color: $camera.colorAdjustments.color
             )
-            .frame(width: 96, height: 96)
+            .frame(width: 64, height: 64)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack {
@@ -647,8 +670,12 @@ struct CameraScreen: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 2)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.82), lineWidth: 1)
+        }
     }
 
     private var bottomToolPanel: some View {
@@ -661,15 +688,22 @@ struct CameraScreen: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: activeTool == .filters ? 246 : 82)
+        .frame(height: activeTool == .filters ? 200 : 82)
         .padding(5)
         .background(
-            Color.white,
+            .ultraThinMaterial,
             in: RoundedRectangle(
                 cornerRadius: activeTool == .filters ? 18 : 12,
                 style: .continuous
             )
         )
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: activeTool == .filters ? 18 : 12,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.88), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(
             cornerRadius: activeTool == .filters ? 18 : 12,
             style: .continuous
@@ -694,7 +728,7 @@ struct CameraScreen: View {
                             )
                         )
                     sideCaptureControls
-                        .frame(height: 88)
+                        .frame(height: showAutofocusCapsule ? 82 : 52)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 .transition(.opacity)
@@ -1173,7 +1207,11 @@ struct CameraScreen: View {
         .clipped()
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(Color.white, in: Capsule())
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule().stroke(Color.white.opacity(0.92), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0xA6B7C9).opacity(0.12), radius: 10, y: 4)
         .contentShape(Capsule())
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
