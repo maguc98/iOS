@@ -581,7 +581,7 @@ struct CameraScreen: View {
     private var filterPicker: some View {
         HStack(alignment: .center, spacing: 9) {
             // Large grading pad on the left, matching the user's marked area.
-            VStack(spacing: 5) {
+            VStack(spacing: 2) {
                 ColorGradingPad(
                     tone: $camera.colorAdjustments.tone,
                     color: $camera.colorAdjustments.color
@@ -594,6 +594,19 @@ struct CameraScreen: View {
                     styleValue("I", value: camera.colorAdjustments.intensity)
                 }
                 .frame(maxWidth: .infinity)
+
+                HStack(spacing: 3) {
+                    Text("强度")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x596171))
+                    Text("\(Int(camera.colorAdjustments.intensity.rounded()))")
+                        .font(.system(size: 8, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(Color(hex: 0x3D4352))
+                    Spacer(minLength: 1)
+                }
+                Slider(value: $camera.colorAdjustments.intensity, in: 0...100)
+                    .tint(Color(hex: selectedPalette.accent))
+                    .controlSize(.mini)
             }
             .frame(width: 118)
 
