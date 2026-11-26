@@ -234,41 +234,7 @@ struct CameraScreen: View {
                             .zIndex(13)
                     }
 
-                    if isToolPanelExpanded {
-                        Group {
-                            switch activeTool {
-                            case .filters:
-                                filterPicker
-                            case .superResolution:
-                                superResolutionPicker
-                            }
-                        }
-                        .frame(width: width - 28, height: activeTool == .filters ? 246 : 82)
-                        .padding(5)
-                        .background(
-                            Color.white,
-                            in: RoundedRectangle(
-                                cornerRadius: activeTool == .filters ? 18 : 12,
-                                style: .continuous
-                            )
-                        )
-                        .clipShape(RoundedRectangle(
-                            cornerRadius: activeTool == .filters ? 18 : 12,
-                            style: .continuous
-                        ))
-                        .position(x: width / 2, y: height - (activeTool == .filters ? 130 : 55))
-                        .transition(
-                            .asymmetric(
-                                insertion: .scale(scale: 0.94, anchor: .bottom)
-                                    .combined(with: .offset(y: 12))
-                                    .combined(with: .opacity),
-                                removal: .scale(scale: 0.97, anchor: .bottom)
-                                    .combined(with: .offset(y: 6))
-                                    .combined(with: .opacity)
-                            )
-                        )
-                        .zIndex(20)
-                    }
+
 
 
                 }
@@ -321,7 +287,7 @@ struct CameraScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                     .padding(.bottom, 16)
-                    shutterControls
+                    expandedCaptureContent
                     modeFooter
                         .padding(.top, 10)
                 }
@@ -685,6 +651,61 @@ struct CameraScreen: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    private var bottomToolPanel: some View {
+        Group {
+            switch activeTool {
+            case .filters:
+                filterPicker
+            case .superResolution:
+                superResolutionPicker
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: activeTool == .filters ? 246 : 82)
+        .padding(5)
+        .background(
+            Color.white,
+            in: RoundedRectangle(
+                cornerRadius: activeTool == .filters ? 18 : 12,
+                style: .continuous
+            )
+        )
+        .clipShape(RoundedRectangle(
+            cornerRadius: activeTool == .filters ? 18 : 12,
+            style: .continuous
+        ))
+    }
+
+    /// The style editor takes over the shutter-button row while keeping
+    /// album access and autofocus utilities available beneath the panel.
+    private var expandedCaptureContent: some View {
+        Group {
+            if isToolPanelExpanded {
+                VStack(spacing: 7) {
+                    bottomToolPanel
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.96, anchor: .bottom)
+                                    .combined(with: .offset(y: 10))
+                                    .combined(with: .opacity),
+                                removal: .scale(scale: 0.98, anchor: .bottom)
+                                    .combined(with: .offset(y: 5))
+                                    .combined(with: .opacity)
+                            )
+                        )
+                    sideCaptureControls
+                        .frame(height: 58)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                .transition(.opacity)
+            } else {
+                shutterControls
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.spring(response: 0.38, dampingFraction: 0.84), value: isToolPanelExpanded)
+    }
+
     private func styleValue(_ title: String, value: Double) -> some View {
         HStack(spacing: 3) {
             Text(title)
@@ -972,9 +993,7 @@ struct CameraScreen: View {
         camera.setZoom(clamped, animated: animated)
     }
 
-    private var shutterControls: some View {
-        GeometryReader { geometry in
-            ZStack {
+    private var sideCaptureControls: some View {
                 HStack {
                     Button {
                         camera.reloadSavedMedia()
@@ -1076,6 +1095,12 @@ struct CameraScreen: View {
                     }
                     .frame(minWidth: 48)
                 }
+    }
+
+    private var shutterControls: some View {
+        GeometryReader { geometry in
+            ZStack {
+                sideCaptureControls
 
                 HStack(spacing: 26) {
                     Button {
