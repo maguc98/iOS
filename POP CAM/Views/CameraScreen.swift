@@ -612,9 +612,7 @@ struct CameraScreen: View {
                     .frame(height: 30)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 5)
-                    // Keep the drag target away from the iPhone bottom-edge
-                    // navigation gesture while preserving the full slider range.
-                    .contentShape(Rectangle()))
+                    .contentShape(Rectangle())
             }
             .frame(width: 118)
 
