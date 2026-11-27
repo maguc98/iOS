@@ -70,7 +70,7 @@ struct CameraScreen: View {
                 let height = width * 4 / 3
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * 0.482
+                let centerY = previewGeometry.size.height * (isToolPanelExpanded ? 0.45 : 0.482)
 
                 ZStack {
                     Group {
@@ -269,7 +269,7 @@ struct CameraScreen: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     header
-                    if !isCaptureBarCollapsed {
+                    if !isCaptureBarCollapsed && !isToolPanelExpanded {
                         captureFormatBar
                             .padding(.top, 14)
                             .padding(.horizontal, 8)
@@ -285,7 +285,7 @@ struct CameraScreen: View {
                 .padding(.top, 72)
                 // Add extra bottom breathing room while a tool is open,
                 // preventing slider drags from colliding with system gestures.
-                .padding(.bottom, isToolPanelExpanded ? 8 : 12)
+                .padding(.bottom, isToolPanelExpanded ? 20 : 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isCaptureBarCollapsed)
@@ -611,7 +611,8 @@ struct CameraScreen: View {
                     .controlSize(.regular)
                     .frame(height: 30)
                     .padding(.horizontal, 5)
-                    .padding(.vertical, 5)
+                    .padding(.top, 5)
+                    .padding(.bottom, 10)
                     .contentShape(Rectangle())
             }
             .frame(width: 118)
