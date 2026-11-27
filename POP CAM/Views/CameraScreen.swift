@@ -285,7 +285,7 @@ struct CameraScreen: View {
                 .padding(.top, 72)
                 // Add extra bottom breathing room while a tool is open,
                 // preventing slider drags from colliding with system gestures.
-                .padding(.bottom, isToolPanelExpanded ? 30 : 12)
+                .padding(.bottom, isToolPanelExpanded ? 8 : 12)
                 // Keep every control inside the physical screen viewport.
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .animation(.spring(response: 0.42, dampingFraction: 0.84), value: isCaptureBarCollapsed)
