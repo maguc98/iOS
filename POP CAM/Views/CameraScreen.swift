@@ -70,7 +70,9 @@ struct CameraScreen: View {
                 let height = width * 4 / 3
                 let cornerRadius: CGFloat = 28
                 let centerX = previewGeometry.size.width / 2
-                let centerY = previewGeometry.size.height * (isToolPanelExpanded ? 0.45 : 0.482)
+                // When the bottom tool dock is open, reserve a clear vertical gap above it.
+                // Move the fixed-size viewfinder upward instead of allowing the dock to overlap it.
+                let centerY = previewGeometry.size.height * (isToolPanelExpanded ? 0.39 : 0.482)
 
                 ZStack {
                     Group {
